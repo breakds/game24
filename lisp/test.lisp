@@ -1,24 +1,5 @@
 (in-package :breakds.game24)
 
-;; (defmacro map-cartesian (fun &rest lists)
-;;   (with-gensyms (x-vars y-var remain)
-;;     `(macrolet ((reduce-iter (,x-vars ,y-var &rest ,remain)
-;;                   (with-gensyms (x y)
-;;                     (let ((len (length ,remain)))
-;;                       `(reduce (lambda (,y ,x)
-;;                                  ,(case len
-;;                                         (1 `(cons (funcall ,,fun  
-;;                                                            ,@(reverse 
-;;                                                               ,x-vars) 
-;;                                                            ,x)
-;;                                                   ,y))
-;;                                         (t `(reduce-iter ,(cons x ,x-vars)
-;;                                                          ,y
-;;                                                          ,@(cdr ,remain)))))
-;;                                ,(car ,remain)
-;;                                :initial-value ,,y-var)))))
-;;        (reduce-iter nil nil ,@lists))))
-
 (defmacro map-cartesian (fun &rest lists)
   (labels ((reduce-iter (x-vars y-var remain)
              (with-gensyms (x y)
@@ -105,47 +86,72 @@
     (remove-if-not (lambda (x) (= (calc x) 24)) (gen lst nil nil))))
 
 
-;; (def-model input-model
-;;     ((defaults (lambda () (create 
+(defparameter *max-number* 9)
 
 
-(defmacro connect (&rest lst)
-  (if (null lst) nil
-      `(cons ,(car lst) (connect ,@(cdr lst)))))
+(def-model number-set-model
+    ((defaults (properties :selected 0))))
 
 
-(def-model number-model
-    ((defaults (properties :number 0))))
-
-(def-view number-view
-    ((tag-name "option")
-     (template "<%=number%>")
+(def-view number-set-view
+    ((tag-name "select")
+     (template (eval-lisp 
+                (funcall (alambda (k accu)
+                           (if (= k 0) accu
+                               (self (1- k)
+                                     (mkstr "<option>" k "</option>" accu))))
+                         *max-number* "")))
      (initialize (lazy-init
-                  (append-to-parent)
-                  nil))
+                  (append-to-parent)))
+     (render (lambda ()
+               (render-from-model)
+               this))
+     (events (create "change" "changed"))
+     (changed (lambda ()
+                (@set "selected" (*number (@. this $el (val))))
+                nil))))
+
+(def-model submit-model
+    ((defaults (properties :vent undefined))))
+
+(def-view submit-button
+    ((tag-name "button")
+     (template "Submit")
+     (initialize (lazy-init
+                  (append-to-parent)))
+     (render (lambda ()
+               (render-from-model)
+               this))
+     (events (create "click" "clicked"))
+     (clicked (lambda ()
+                (@. (@get "vent") 
+                    (trigger "submit-event"))))))
+
+
+(def-model single-solution-model
+    ((defaults (properties :solution ""))))
+
+(def-view single-solution-view
+    ((tag-name "tr")
+     (template "<td><%=solution%></td>")
+     (initialize (lazy-init
+                  (append-to-parent)))
      (render (lambda ()
                (render-from-model)
                this))))
 
-(def-collection number-set-model
-    ((defaults (properties :selected 0))
-     (model number-model)))
+(def-collection solutions-model
+    ((model single-solution-model)))
 
-(def-collection-view number-set-view
-    ((tag-name "select")
-     (sub-view number-view)
+(def-collection-view solutions-view
+    ((tag-name "table")
+     (sub-view single-solution-view)
      (initialize (lazy-init
                   (append-to-parent)
                   (@. this model list (each (@ this lazy-add)))))
      (render (lambda ()
                (render-from-model)
                this))))
-               
-    
-
-                 
-     
-
 
 (define-simple-app game24-app
     (:title "Game 24"
@@ -156,17 +162,42 @@
 		   ;; underscore.js from cdnjs
 		   "http://cdnjs.cloudflare.com/ajax/libs/underscore.js/1.4.4/underscore-min.js"
 		   ;; backbone.js from cdnjs
-                   "http://cdnjs.cloudflare.com/ajax/libs/backbone.js/1.0.0/backbone-min.js"
-                   ;; bootstrap
-                   "http://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/2.3.2/js/bootstrap.min.js"))
-  (defvar tmp-array (array (duplicate number-model :number 1)
-                           (duplicate number-model :number 2)
-                           (duplicate number-model :number 3)
-                           (duplicate number-model :number 4)))
-  (defvar number-set0 (duplicate number-set-model
-                                 :model-list tmp-array))
-  (defvar select0 (duplicate number-set-view
-                             :model number-set0)))
+                   "http://cdnjs.cloudflare.com/ajax/libs/backbone.js/1.0.0/backbone-min.js"))
+  (create-event-manager vent
+                        "submit-event" (lambda ()
+                                         (@fetch (@ solutions list)
+                                                 :url "/game24/calc"
+                                                 :type "post"
+                                                 :server (let ((numbers (array (@. number-set-0 (get "selected"))
+                                                                               (@. number-set-1 (get "selected"))
+                                                                               (@. number-set-2 (get "selected"))
+                                                                               (@. number-set-3 (get "selected")))))
+                                                           (let ((result (remove-duplicates (mapcar #'normalize-exp (solve numbers)) :test #'equal)))
+                                                             (jsown:to-json (mapcar (lambda (x) `(:obj ("solution" ,(format nil "solution: ~a" x))))
+                                                                                    result)))))))
+  (macrolet ((place-view (id)
+               `(progn (defvar ,(symb 'number-set- id) 
+                         (duplicate number-set-model))
+                       (defvar ,(symb 'number-set-view- id)
+                         (duplicate number-set-view
+                                    :model ,(symb 'number-set- id))))))
+    (place-view 0)
+    (place-view 1)
+    (place-view 2)
+    (place-view 3))
+  (defvar button (duplicate submit-button
+                            :model (duplicate submit-model
+                                              :vent vent)))
+
+  (defvar solutions (duplicate solutions-model
+                               :model-list (array (duplicate single-solution-model
+                                                             :solution "(* 6 4)")
+                                                  (duplicate single-solution-model
+                                                             :solution "(* 3 8)")
+                                                  (duplicate single-solution-model
+                                                             :solution "(+ 12 12)"))))
+  (defvar solution-list (duplicate solutions-view 
+                                   :model solutions)))
             
      
 
