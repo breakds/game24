@@ -9,6 +9,9 @@ A lazy-bone Tutorial.
 
 That says, if you find any difficulties understanding this article, it must be my fault. Feel free to contact me through GitHub or email `BreakDS@g(oogle)mail.com`.
 
+
+The final web app will look like [this](http://ec2-54-242-26-216.compute-1.amazonaws.com:9702/game24).
+
 ### About the 24 Game
 
 The 24 Game is about finding an arithmetic expression that results 24 with four given integer, where only + - * / are allowed. Please refer to [Wikipedia](http://en.wikipedia.org/wiki/24_Game) for more information.
