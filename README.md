@@ -143,4 +143,4 @@ The solver is straigt-forward as described above:
     (remove-if-not (lambda (x) (= (calc x) 24)) (gen lst nil nil))))
 ```
 
-The macro `map-cartesian`
+**Notes**: The macro `map-cartesian` is a analogical to `mapcar`. In fact, it is the `mapcar` on the cartesian product of its list arguments. `map-cartesian` is defined in the library [basicl](https://github.com/breakds/basicl), and the code is given in the appendix. Another spot worth noticing is that the constructed expressions might involve division by zero, therefore we need to apply `ignore-erros` to the `(eval exp)` in the definition of `calc`. We force the evaluation of "division-by-zero" expression to be 0 so that it yeilds an integer that is not equal to 24.
