@@ -196,7 +196,7 @@ Defining the models and views are just like defining functions in common-lisp. T
                this))))
 ```
 
-The body of view and model definition is a list of attribute definition, where each attribute definition specifies an attribute name and an attribute value. For example, in the above code segment, the model `number-set-model` has attribute `defaults` specified, whose value is `{ selected : }`. The view `number-set-view` has several attributes specified, where the `tag-name` is "select" (once instantiated, it becomes a "<select>" in the DOM), the template is several options (once instantiated, the content between "<select>" and "</select>"), `initialize` will be a lambda function that appends the "<select>" html segment to its parent node (`lazy-init` is a macro that defines a lambda function that also execute initialization code of its super class), and finally, `render` is a lambda function that actually do the render job and return `this`.
+The body of view and model definition is a list of attribute definition, where each attribute definition specifies an attribute name and an attribute value. For example, in the above code segment, the model `number-set-model` has attribute `defaults` specified, whose value is `{ selected : }`. The view `number-set-view` has several attributes specified, where the `tag-name` is "select" (once instantiated, it becomes a "<select>" in the DOM), the template is several options (once instantiated, the content between "<select>" and "</select>"), `initialize` will be a lambda function that appends the "<select>" html segment to its parent node (`lazy-init` is a macro that defines a lambda function that also execute initialization code of its super class), and finally, `render` is a lambda function that actually do the render job and return `this`. Note that we specify values for those attributes in **parenscript**, which means that they do not get evaluted but will be translated to javascript in the future.
 
 We then plug this view into our web application. Append those parenscript code in our web application definition:
 
@@ -219,3 +219,60 @@ We then plug this view into our web application. Append those parenscript code i
 ```
 
 Those two line simply means we have number-set-0 as an instance of number-set-model as we defined above, and an instance of number-set-view called number-set-view-0. The macro `duplicate` accepts keyword parameter list as shown and commented in the code.
+
+
+Open your browser again and you'll see a select box there now.
+
+
+### Step 4: Embed Some Common Lisp Code
+
+Take another look at the view definition code from the above section.
+
+```common-lisp
+(def-view number-set-view
+    ((tag-name "select")
+     (template "<option>1</option><option>2</option><option>3</option>")
+     (initialize (lazy-init
+                  (append-to-parent)))
+     (render (lambda ()
+               (render-from-model)
+               this))))
+```
+
+I believe I am not the only one consider the "<option>..." string tedious. What if we want 10 options? 100? Here comes one benefit of writing parenscript code: we can embed common lisp code in it so that it gets evaluted before translated to javascript. With `eval-lisp`, the above code can be made to support option 1 through 9 as
+
+```common-lisp
+(def-view number-set-view
+    ((tag-name "select")
+     (template (eval-lisp 
+                (funcall (alambda (k accu)
+                           (if (= k 0) accu
+                               (self (1- k)
+                                     (mkstr "<option>" k "</option>" accu))))
+                         9 "")))
+     (initialize (lazy-init
+                  (append-to-parent)))
+     (render (lambda ()
+               (render-from-model)
+               this))))
+```
+
+And we can do even better! If we make 9 a special variable, we can then modify it even when the web server is running.
+
+```common-lisp
+(defparameter *max-number* 9)
+
+(def-view number-set-view
+    ((tag-name "select")
+     (template (eval-lisp 
+                (funcall (alambda (k accu)
+                           (if (= k 0) accu
+                               (self (1- k)
+                                     (mkstr "<option>" k "</option>" accu))))
+                         *max-number* "")))
+     (initialize (lazy-init
+                  (append-to-parent)))
+     (render (lambda ()
+               (render-from-model)
+               this))))
+```
