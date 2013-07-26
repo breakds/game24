@@ -364,12 +364,15 @@ The HTML tag "<select>" will emit an event "changed" when the user alters the se
                 nil))))
 ```
 
-**Note** that `create` in parenscript does object creation. That says, `(create a b c d)` will be translated into `{ a: b, c: d}` in javascript. There are two new macros introduced here
+**Note** that `create` in parenscript does object creation. That says, `(create a b c d)` will be translated into `{ a: b, c: d}` in javascript. There are three new macros introduced here
 
 * `@set` sets the specified property of the view's model. 
 * `trace` prints its argument to the console.
+* `@.` and `@` are the chain macros that mimic the `.` in javascript. `(@. a (b c) d (e f))` translates to `a.b(c).d.e(f)` in javascript. 
+
 
 Test the web app in your browser now with the console open. Whenever you modify the selection of any select box, its model's new "selected" value will be printed in the console.
+
 
 ### Step 7: A Submit Button
 
@@ -414,5 +417,63 @@ Nothing new here. The property `vent` will prove its usefulness later. Add some 
                             :model (duplicate submit-model))))
 ```
 
-You'll see the button in your browser if you test it now. The only problem might be that no matter how hard you strike the button, nothing happens. Well, that's forgivable. After all, we haven't associated its "click" event to anything.
+You'll see the button in your browser if you test it now. The only problem you see might be that no matter how hard you strike the button, nothing happens. Well, that's forgivable. After all, we haven't associated its "click" event to anything.
 
+### Step 8: A Global Event Manager
+
+We are now going to define a global event manager called "vent" that listen to registered events and perform some registered callback work. The following piece of code in the very beginning of the parenscript section translates (to English) that: when never I heard about the event "submit-event", I print "ok" to the console.
+
+```common-lisp
+(define-simple-app game24-app
+    (:title "Game 24"
+            :uri "/game24"
+            :port 9702
+            :libs (;; JQuery
+            "http://ajax.googleapis.com/ajax/libs/jquery/1.10.1/jquery.min.js"
+		        ;; underscore.js
+            "http://cdnjs.cloudflare.com/ajax/libs/underscore.js/1.4.4/underscore-min.js"
+		        ;; backbone.js
+            "http://cdnjs.cloudflare.com/ajax/libs/backbone.js/1.0.0/backbone-min.js"))
+  ;; parenscript starts here
+  (create-event-manager vent
+                        "submit-event" (lambda ()
+                                         (trace "ok")))
+  (macrolet ((place-view (id)
+               `(progn (defvar ,(symb 'number-set- id) 
+                         (duplicate number-set-model))
+                       (defvar ,(symb 'number-set-view- id)
+                         (duplicate number-set-view
+                                    :model number-set-0)))))
+    (place-view 0)
+    (place-view 1)
+    (place-view 2)
+    (place-view 3))
+  (defvar button (duplicate submit-button
+                            :model (duplicate submit-model
+                                              :vent vent)))) ;; pass the global manager to the model
+```
+
+Not so hard, huh? Note that we also pass the global manager "vent" to the "vent" property of the button's model. We can now control the button to emit a "submit-event" to the global event manager whenever clicked. The same "events" attribute trick will do. Modify the defnition of the button as:
+
+```common-lisp
+(def-model submit-model
+    ((defaults (properties :vent undefined))))
+
+(def-view submit-button
+    ((tag-name "button")
+     (template "Submit")
+     (initialize (lazy-init
+                  (append-to-parent)))
+     (render (lambda ()
+               (render-from-model)
+               this))
+     (events (create "click" "clicked"))
+     (clicked (lambda ()
+                (@. (@get "vent") 
+                    (trigger "submit-event"))))))
+```
+
+**Note** a new macro is introduced here called `@get`. It's similar to `@set` except for that it reads the property instead of writing to it.
+
+
+Now you should be able to see "ok" being printed in the console while click the button. 
