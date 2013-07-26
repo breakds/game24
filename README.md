@@ -276,3 +276,143 @@ And we can do even better! If we make 9 a special variable, we can then modify i
                (render-from-model)
                this))))
 ```
+
+### Step 5: Four Select Boxes
+
+Did I forget to say we have to have four select boxes for the 24 Game? Sounds easy enough:
+
+```common-lisp
+(define-simple-app game24-app
+    (:title "Game 24"
+     :uri "/game24"
+     :port 9702
+     :libs (;; JQuery
+            "http://ajax.googleapis.com/ajax/libs/jquery/1.10.1/jquery.min.js"
+		        ;; underscore.js
+            "http://cdnjs.cloudflare.com/ajax/libs/underscore.js/1.4.4/underscore-min.js"
+		        ;; backbone.js
+            "http://cdnjs.cloudflare.com/ajax/libs/backbone.js/1.0.0/backbone-min.js"))
+  ;; parenscript code starts here
+  (defvar number-set-0 (duplicate number-set-model))
+  (defvar number-set-view-0 (duplicate number-set-view
+                                       :model number-set-0))
+  (defvar number-set-1 (duplicate number-set-model))
+  (defvar number-set-view-1 (duplicate number-set-view
+                                       :model number-set-1))
+  (defvar number-set-2 (duplicate number-set-model))
+  (defvar number-set-view-2 (duplicate number-set-view
+                                       :model number-set-2))
+  (defvar number-set-3 (duplicate number-set-model))
+  (defvar number-set-view-3 (duplicate number-set-view
+                                       :model number-set-3)))
+```
+
+Oh no, I smell something really ordorous >_<. Glad we don't have to do it for 100 times. But what if we do? 
+
+
+Though not necessary, I am going to demonstrate another trick of parenscript here, the `macrolet`. we can first use `macrolet` to define a inline macro, and apply it for four times:
+
+```common-lisp
+(define-simple-app game24-app
+    (:title "Game 24"
+            :uri "/game24"
+            :port 9702
+            :libs (;; JQuery
+            "http://ajax.googleapis.com/ajax/libs/jquery/1.10.1/jquery.min.js"
+		        ;; underscore.js
+            "http://cdnjs.cloudflare.com/ajax/libs/underscore.js/1.4.4/underscore-min.js"
+		        ;; backbone.js
+            "http://cdnjs.cloudflare.com/ajax/libs/backbone.js/1.0.0/backbone-min.js"))
+  (macrolet ((place-view (id)
+               `(progn (defvar ,(symb 'number-set- id) 
+                         (duplicate number-set-model))
+                       (defvar ,(symb 'number-set-view- id)
+                         (duplicate number-set-view
+                                    :model number-set-0)))))
+    (place-view 0)
+    (place-view 1)
+    (place-view 2)
+    (place-view 3)))
+```
+
+
+### Step 6: Intraction with Model
+
+Wondering why we have a property called "selected" in our model definition? You should. That is a property which will be changed if you change the selected integer in the select box. We have to make a connecton between the view and its model. 
+
+The HTML tag "<select>" will emit an event "changed" when the user alters the selection. Appending some attribute slots in our view definition will create a callback for this event:
+
+```common-lisp
+(def-view number-set-view
+    ((tag-name "select")
+     (template (eval-lisp 
+                (funcall (alambda (k accu)
+                           (if (= k 0) accu
+                               (self (1- k)
+                                     (mkstr "<option>" k "</option>" accu))))
+                         *max-number* "")))
+     (initialize (lazy-init
+                  (append-to-parent)))
+     (render (lambda ()
+               (render-from-model)
+               this))
+     (events (create "change" "changed"))
+     (changed (lambda ()
+                (@set "selected" (*number (@. this $el (val))))
+                ;; for debug
+                (trace (@get "selected"))
+                nil))))
+```
+
+**Note** that `create` in parenscript does object creation. That says, `(create a b c d)` will be translated into `{ a: b, c: d}` in javascript. There are two new macros introduced here
+
+* `@set` sets the specified property of the view's model. 
+* `trace` prints its argument to the console.
+
+Test the web app in your browser now with the console open. Whenever you modify the selection of any select box, its model's new "selected" value will be printed in the console.
+
+### Step 7: A Submit Button
+
+```common-lisp
+(def-model submit-model
+    ((defaults (properties :vent undefined))))
+
+(def-view submit-button
+    ((tag-name "button")
+     (template "Submit")
+     (initialize (lazy-init
+                  (append-to-parent)))
+     (render (lambda ()
+               (render-from-model)
+               this))))
+```
+
+Nothing new here. The property `vent` will prove its usefulness later. Add some code to the web app definition so that the button will be shown:
+
+```common-lisp
+(define-simple-app game24-app
+    (:title "Game 24"
+            :uri "/game24"
+            :port 9702
+            :libs (;; JQuery
+            "http://ajax.googleapis.com/ajax/libs/jquery/1.10.1/jquery.min.js"
+		        ;; underscore.js
+            "http://cdnjs.cloudflare.com/ajax/libs/underscore.js/1.4.4/underscore-min.js"
+		        ;; backbone.js
+            "http://cdnjs.cloudflare.com/ajax/libs/backbone.js/1.0.0/backbone-min.js"))
+  (macrolet ((place-view (id)
+               `(progn (defvar ,(symb 'number-set- id) 
+                         (duplicate number-set-model))
+                       (defvar ,(symb 'number-set-view- id)
+                         (duplicate number-set-view
+                                    :model number-set-0)))))
+    (place-view 0)
+    (place-view 1)
+    (place-view 2)
+    (place-view 3))
+  (defvar button (duplicate submit-button
+                            :model (duplicate submit-model))))
+```
+
+You'll see the button in your browser if you test it now. The only problem might be that no matter how hard you strike the button, nothing happens. Well, that's forgivable. After all, we haven't associated its "click" event to anything.
+
