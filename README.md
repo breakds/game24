@@ -144,3 +144,78 @@ The solver is straigt-forward as described above:
 ```
 
 **Notes**: The macro `map-cartesian` is a analogical to `mapcar`. In fact, it is the `mapcar` on the cartesian product of its list arguments. `map-cartesian` is defined in the library [basicl](https://github.com/breakds/basicl), and the code is given in the appendix. Another spot worth noticing is that the constructed expressions might involve division by zero, therefore we need to apply `ignore-erros` to the `(eval exp)` in the definition of `calc`. We force the evaluation of "division-by-zero" expression to be 0 so that it yeilds an integer that is not equal to 24.
+
+
+### Step 2: A Blank Web Page
+
+Programming is usually an iterative process and we are definitely going to stick to this tradition. To define a web application with [lazy-bone](https://github.com/breakds/lazy-bone), we call the macro `define-simple-app`:
+
+```common-lisp
+(define-simple-app game24-app
+    (:title "Game 24"
+     :uri "/game24"
+     :port 9702
+     :libs (;; JQuery
+  	        "http://ajax.googleapis.com/ajax/libs/jquery/1.10.1/jquery.min.js"
+		        ;; underscore.js
+            "http://cdnjs.cloudflare.com/ajax/libs/underscore.js/1.4.4/underscore-min.js"
+		        ;; backbone.js
+            "http://cdnjs.cloudflare.com/ajax/libs/backbone.js/1.0.0/backbone-min.js"))
+  ;; the parenscript code goes here)
+```
+
+The above code defines a web-application called "game24-app". Most of the parameters are self-explained. With such configuration, the web application can be visited by typing "localhost:9702/game24" in your web browser once it is started. This piece of code implicitly defines two function: `start-server` and `stop-server`, where usage are quite clear:
+
+```common-lisp
+GAME24> (start-server)
+server started.
+NIL
+;; Now you can open your web browser and type "localhost:9702/game24"
+```
+
+We'll going to write some parenscript code in the place indicated with corresponding comment. Before that, you'll find nothing but a blank webpage in your web browser.
+
+
+### Step 3: First Widget - A Select Box
+
+Now we are going to put a select box in the web page. Whether you are familiar with Backbone.js or its millions MVC counterparts, you are reminded that in a MVC framework (Okay, Backbone.js is not quite a strict MVC framework ... let it be ..) we define models to hold the data and define views (of models) to be shown in the web page. [lazy-bone](https://github.com/breakds/lazy-bone) follows the same path.
+
+Defining the models and views are just like defining functions in common-lisp. The following code defines the select box for number selection:
+
+```common-lisp
+(def-model number-set-model
+    ((defaults (properties :selected 0))))
+
+(def-view number-set-view
+    ((tag-name "select")
+     (template "<option>1</option><option>2</option><option>3</option>")
+     (initialize (lazy-init
+                  (append-to-parent)))
+     (render (lambda ()
+               (render-from-model)
+               this))))
+```
+
+The body of view and model definition is a list of attribute definition, where each attribute definition specifies an attribute name and an attribute value. For example, in the above code segment, the model `number-set-model` has attribute `defaults` specified, whose value is `{ selected : }`. The view `number-set-view` has several attributes specified, where the `tag-name` is "select" (once instantiated, it becomes a "<select>" in the DOM), the template is several options (once instantiated, the content between "<select>" and "</select>"), `initialize` will be a lambda function that appends the "<select>" html segment to its parent node (`lazy-init` is a macro that defines a lambda function that also execute initialization code of its super class), and finally, `render` is a lambda function that actually do the render job and return `this`.
+
+We then plug this view into our web application. Append those parenscript code in our web application definition:
+
+```common-lisp
+(define-simple-app game24-app
+    (:title "Game 24"
+     :uri "/game24"
+     :port 9702
+     :libs (;; JQuery
+            "http://ajax.googleapis.com/ajax/libs/jquery/1.10.1/jquery.min.js"
+		        ;; underscore.js
+            "http://cdnjs.cloudflare.com/ajax/libs/underscore.js/1.4.4/underscore-min.js"
+		        ;; backbone.js
+            "http://cdnjs.cloudflare.com/ajax/libs/backbone.js/1.0.0/backbone-min.js"))
+  ;; appende parenscript code
+  (defvar number-set-0 (duplicate number-set-model))
+  (defvar number-set-view-0 (duplicate number-set-view
+                                       :model number-set-0))) 
+;; number-set-view-0 is an instance of number-set-view whose corresponding model is number-set-0.
+```
+
+Those two line simply means we have number-set-0 as an instance of number-set-model as we defined above, and an instance of number-set-view called number-set-view-0. The macro `duplicate` accepts keyword parameter list as shown and commented in the code.
