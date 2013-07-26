@@ -477,3 +477,212 @@ Not so hard, huh? Note that we also pass the global manager "vent" to the "vent"
 
 
 Now you should be able to see "ok" being printed in the console while click the button. 
+
+
+### Step 9: The Solution Table
+
+The solution table will be an HTML "<table>" tag displaying the solutions to the 24 Game. Defining them is similary to the button and the select box, except for that the model is actually a collection instead of a single model. The following code will accomplish the task:
+
+```common-lisp
+(def-model single-solution-model
+    ((defaults (properties :solution ""))))
+
+(def-view single-solution-view
+    ((tag-name "tr")
+     (template "<td><%=solution%></td>")
+     (initialize (lazy-init
+                  (append-to-parent)))
+     (render (lambda ()
+               (render-from-model)
+               this))))
+
+(def-collection solutions-model
+    ((model single-solution-model)))
+
+(def-collection-view solutions-view
+    ((tag-name "table")
+     (sub-view single-solution-view)
+     (initialize (lazy-init
+                  (append-to-parent)
+                  (@. this model list (each (@ this lazy-add)))))
+     (render (lambda ()
+               (render-from-model)
+               this))))
+```
+
+**Note** that there are several new attributes here in the `collection` definition and the `collection-view` definition. A collection is actually a list of its sub model isntances, therefore we need to specify its sub model by setting the attribute "model". Instantiate a collection view needs also to instantiate the view for the sub models, which requires specify the "sub-view" attribute. You might also want to refer to [Backbone.js: Collection](http://backbonejs.org/#Collection).
+
+You can then place the collection-view in your web application:
+
+```common-lisp
+(define-simple-app game24-app
+    (:title "Game 24"
+            :uri "/game24"
+            :port 9702
+            :libs (;; JQuery
+            "http://ajax.googleapis.com/ajax/libs/jquery/1.10.1/jquery.min.js"
+		        ;; underscore.js
+            "http://cdnjs.cloudflare.com/ajax/libs/underscore.js/1.4.4/underscore-min.js"
+		        ;; backbone.js
+            "http://cdnjs.cloudflare.com/ajax/libs/backbone.js/1.0.0/backbone-min.js"))
+  ;; parenscript starts here
+  (create-event-manager vent
+                        "submit-event" (lambda ()
+                                         (trace "ok")))
+  (macrolet ((place-view (id)
+               `(progn (defvar ,(symb 'number-set- id) 
+                         (duplicate number-set-model))
+                       (defvar ,(symb 'number-set-view- id)
+                         (duplicate number-set-view
+                                    :model number-set-0)))))
+    (place-view 0)
+    (place-view 1)
+    (place-view 2)
+    (place-view 3))
+  (defvar button (duplicate submit-button
+                            :model (duplicate submit-model
+                                              :vent vent)))
+  
+  
+  (defvar solutions (duplicate solutions-model)) ;; the solution table's model
+
+  (defvar solution-list (duplicate solutions-view 
+                                   :model solutions))) ;; the solution table's view                                              
+```
+
+But **do not** expect to see anything in your browser now. The solution model (collection) `solutions` is still empty for this moment.
+
+
+### Step 10: Fetch the Solutions from the Server
+
+You might want to ask, hey, where is ... the server? Do we write the server somewhere else?
+
+The answer is .. Nope, we are just going to write it, here inside the parenscript code of your web app.
+
+And you hear me clearly.
+
+The macro `@fetch` does the job exactly. I am going to first illustrate its usage by a simple example:
+
+```common-lisp
+(@fetch obj 
+        :url "/game24/test"
+        :type "post"
+        :server (let ((a 12)
+                      (b "sum")
+                      (c 3))
+                  (setf (session-value 'result) (+ a c)) ;; this is server common lisp code
+                  (format nil "~a: ~a" b (session-value 'result)))) ;; this is server common lisp code.
+```
+
+The above parenscript code sends a post request the url "/game24/test" and wait for a response to update the content of the a model instance called "obj". The `:server` attribute is actually trickier and **important** here: it accepts a let form. This let form is special because all its body will be server code that executes inside a Hunchentoot handler. The binding list, on the other hand, gets bind on the client side. However, the let form doesn't look special though, since you can access the binded variables in the body just as they gets bound on the server side!
+
+
+Apply this trick to our web application, the code becomes
+
+```common-lisp
+(define-simple-app game24-app
+    (:title "Game 24"
+            :uri "/game24"
+            :port 9702
+            :libs (;; JQuery from Google Ajax cdn
+		   "http://ajax.googleapis.com/ajax/libs/jquery/1.10.1/jquery.min.js"
+		   ;; underscore.js from cdnjs
+		   "http://cdnjs.cloudflare.com/ajax/libs/underscore.js/1.4.4/underscore-min.js"
+                   ;; backbone.js from cdnjs
+                   "http://cdnjs.cloudflare.com/ajax/libs/backbone.js/1.0.0/backbone-min.js"))
+  (create-event-manager vent
+                        "submit-event" (lambda ()
+                                         (@fetch (@ solutions list)
+                                                 :url "/game24/calc"
+                                                 :type "post"
+                                                 :server (let ((numbers (array (@. number-set-0 (get "selected"))
+                                                                               (@. number-set-1 (get "selected"))
+                                                                               (@. number-set-2 (get "selected"))
+                                                                               (@. number-set-3 (get "selected")))))
+                                                           (let ((result (solve numbers)))
+                                                             (jsown:to-json (mapcar (lambda (x) `(:obj ("solution" ,(format nil "solution: ~a" x))))
+                                                                                    result)))))))
+  (macrolet ((place-view (id)
+               `(progn (defvar ,(symb 'number-set- id) 
+                         (duplicate number-set-model))
+                       (defvar ,(symb 'number-set-view- id)
+                         (duplicate number-set-view
+                                    :model ,(symb 'number-set- id))))))
+    (place-view 0)
+    (place-view 1)
+    (place-view 2)
+    (place-view 3))
+  (defvar button (duplicate submit-button
+                            :model (duplicate submit-model
+                                              :vent vent)))
+
+  (defvar solutions (duplicate solutions-model))
+
+  (defvar solution-list (duplicate solutions-view 
+                                   :model solutions)))
+```
+
+**Note** that the "submit-event" is now handled differently. The `@fetch` is used similarly here, except for that the server body now returns a json object that updates the content of our solution model `solutions`.
+
+Now we have built the web application and you can play with it in the browser with ease.
+
+
+### Step 11: A Final Improvement
+
+You might have notice that there can be solutions that are almost identical. We design the following function `normalize-exp` to help solve this problem:
+
+```common-lisp
+(defun normalize-exp (exp)
+  (if (atom exp) exp
+      (let* ((opt (and (member (car exp) '(+ *)) (car exp))))
+        (cons (car exp) 
+              (sort (reduce (lambda (y x) 
+                              (let ((norm (normalize-exp x)))
+                                (or (and (consp norm) (eq opt (car norm))
+                                         (append (cdr norm) y))
+                                    (cons norm y))))
+                            (cdr exp) :initial-value nil)
+                    #'string> :key #'write-to-string)))))
+```
+
+Normalized with `normalize-exp`, similar solutions will be exactly identical. Common Lisp utility function `remove-duplicates` can then filter the solution list easily. Modify the line in your web application server part that calls `solve`
+
+```common-lisp
+(let ((result (solve numbers)))
+   ...)
+```
+
+to be 
+
+```common-lisp
+(let ((result (remove-duplicates (mapcar #'normalize-exp 
+                                         (solve numbers))
+                                 :test #'equal)))
+   ....)
+```
+
+will do the job.
+
+
+
+### Appendix: Implementation of map-cartesian
+
+```common-lisp
+(defmacro map-cartesian (fun &rest lists)
+  (labels ((reduce-iter (x-vars y-var remain)
+             (with-gensyms (x y)
+               `(reduce (lambda (,y ,x)
+                          ,(case (length remain)
+                                 (1 `(cons (funcall ,fun
+                                                    ,@(reverse x-vars)
+                                                    ,x)
+                                           ,y))
+                                 (t (reduce-iter (cons x x-vars)
+                                                 y
+                                                 (cdr remain)))))
+                        ,(car remain)
+                        :initial-value ,y-var))))
+    (reduce-iter nil nil lists)))
+```
+   
+
