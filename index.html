@@ -28,11 +28,687 @@
     <div id="content-wrapper">
       <div class="inner clearfix">
         <section id="main-content">
-          <p>Months ago one of my friends from Econ Dept suggests creating a stats webapp for his PhD cohorts. We both love the idea but sadly, I know nothing about javascript. This disappointed me until I came across <a href="http://common-lisp.net/project/parenscript/">ParenScript</a> by chance. </p>
+          <h1>
+<a name="game24" class="anchor" href="#game24"><span class="octicon octicon-link"></span></a>game24</h1>
 
-<div class="highlight"><pre><span class="p">(</span><span class="nb">defun</span> <span class="nv">a</span> <span class="p">()</span>
-<span class="no">nil</span><span class="p">)</span>
+<p>A lazy-bone Tutorial.</p>
+
+<h3>
+<a name="introduction" class="anchor" href="#introduction"><span class="octicon octicon-link"></span></a>Introduction</h3>
+
+<p><a href="https://github.com/breakds/lazy-bone">lazy-bone</a> is a Common Lisp web application framework, mainly based on <a href="http://common-lisp.net/project/parenscript/">Parenscript</a> and <a href="http://backbonejs.org/">Backbone.js</a>. This tutorial demonstrates building a web application that solves the 24 Game with lazy-bone. All the code (both server side and client side) resides in one single common lisp file, and you should expect an effortless trip reading this article. </p>
+
+<p>That says, if you find any difficulties understanding this article, it must be my fault. Feel free to contact me through GitHub or email <code>BreakDS@g(oogle)mail.com</code>.</p>
+
+<p>The final web app will look like <a href="http://ec2-54-242-26-216.compute-1.amazonaws.com:9702/game24">this</a>.</p>
+
+<h3>
+<a name="about-the-24-game" class="anchor" href="#about-the-24-game"><span class="octicon octicon-link"></span></a>About the 24 Game</h3>
+
+<p>The 24 Game is about finding an arithmetic expression that results 24 with four given integer, where only + - * / are allowed. Please refer to <a href="http://en.wikipedia.org/wiki/24_Game">Wikipedia</a> for more information.</p>
+
+<h3>
+<a name="step-0-preparation" class="anchor" href="#step-0-preparation"><span class="octicon octicon-link"></span></a>Step 0: Preparation</h3>
+
+<p>In this tiny project we need a Common Lisp environment (e.g. Emacs + <a href="http://common-lisp.net/project/slime/">Slime</a>) and some Common Lisp Libraries:</p>
+
+<ul>
+<li>
+<a href="http://weitz.de/hunchentoot/">Hunchentoot</a> for web server</li>
+<li>
+<a href="https://github.com/madnificent/jsown">jsown</a> for Json manipulations</li>
+<li>
+<a href="http://weitz.de/html-template/">html-template</a> for dependecy </li>
+<li>
+<a href="https://github.com/breakds/basicl">basicl</a> for dependency</li>
+<li>and of course, <a href="https://github.com/breakds/lazy-bone">lazy-bone</a>
+</li>
+</ul><p>I would recommend <a href="http://www.quicklisp.org/beta/">quicklisp</a> for Common Lisp library management so that you don't have to get your hand dirty. Just have <a href="https://github.com/breakds/basicl">basicl</a> and <a href="https://github.com/breakds/lazy-bone">lazy-bone</a> in your quicklisp local-projects directory and the depended libraries will be automatically downloaded and configured.</p>
+
+<h3>
+<a name="step-1-the-24-game-solver" class="anchor" href="#step-1-the-24-game-solver"><span class="octicon octicon-link"></span></a>Step 1: The 24 Game Solver</h3>
+
+<p>In this section we create the solver that find the expressions that hits 24 with a list of integers. This part is totally not related to lazy-bone, and will be used in the backend of the web application.</p>
+
+<p>There are many algorithms that solves the 24 Game. The basic idea is to generate all the possible expressions, and filter out the ones that does not have a result of 24. For example, consider the 2 expressions generated from the four integers 3 7 1 2:</p>
+
+<ul>
+<li>(+ (* 3 7) 1 2)</li>
+<li>(+ 3 7 1 2)</li>
+</ul><p>The first one hits 24 and will be kept:</p>
+
+<div class="highlight"><pre><span class="nv">CL-USER&gt;</span> <span class="p">(</span><span class="nb">+</span> <span class="p">(</span><span class="nb">*</span> <span class="mi">3</span> <span class="mi">7</span><span class="p">)</span> <span class="mi">1</span> <span class="mi">2</span><span class="p">)</span>
+<span class="mi">24</span>
 </pre></div>
+
+<p>And the second one is going to be filtered out:</p>
+
+<div class="highlight"><pre><span class="nv">CL-USER&gt;</span> <span class="p">(</span><span class="nb">+</span> <span class="mi">3</span> <span class="mi">7</span> <span class="mi">1</span> <span class="mi">2</span><span class="p">)</span>
+<span class="mi">13</span>
+</pre></div>
+
+<p>It is easy to exhausted all the possible expressions iterately. Consier an integer list x, gen(x) should work as </p>
+
+<ol>
+<li>find all the 2-partitions of x</li>
+<li>for each patition (a b), push the below 6 expressions into result
+
+<ul>
+<li>gen(a) + gen(b)</li>
+<li>gen(a) * gen(b)</li>
+<li>gen(a) - gen(b)</li>
+<li>gen(b) - gen(a)</li>
+<li>gen(a) / gen(b)</li>
+<li>gen(b) / gen(a)</li>
+</ul>
+</li>
+<li>the recursion stops when x is a single integer, in the case x itself will be returned</li>
+</ol><h4>
+<a name="the-partition-generator" class="anchor" href="#the-partition-generator"><span class="octicon octicon-link"></span></a>the Partition Generator</h4>
+
+<p>Okay so much for the explanation, let's write some actual code. The partition generator is a function that produce a closure for a give integer list: partition-generator</p>
+
+<div class="highlight"><pre><span class="p">(</span><span class="nb">defun</span> <span class="nv">partition-generator</span> <span class="p">(</span><span class="nv">lst</span><span class="p">)</span>
+  <span class="s">"return a generator that generates a partition of lst one at a time"</span>
+  <span class="p">(</span><span class="nv">alet</span> <span class="p">()</span>
+    <span class="p">(</span><span class="k">lambda</span> <span class="p">()</span>
+      <span class="p">(</span><span class="nb">funcall</span> <span class="p">(</span><span class="nv">alambda</span> <span class="p">(</span><span class="nv">lst</span> <span class="nv">left</span> <span class="nv">right</span> <span class="nv">cont</span><span class="p">)</span>
+                 <span class="p">(</span><span class="k">block</span> <span class="nv">result</span>
+                   <span class="p">(</span><span class="k">if</span> <span class="p">(</span><span class="nb">null</span> <span class="nv">lst</span><span class="p">)</span>
+                       <span class="p">(</span><span class="k">return-from</span> <span class="nv">result</span>
+                         <span class="p">(</span><span class="nb">when</span> <span class="nv">left</span>
+                           <span class="p">(</span><span class="k">setq</span> <span class="nv">this</span> <span class="nv">cont</span><span class="p">)</span>
+                           <span class="p">(</span><span class="nb">list</span> <span class="nv">left</span> <span class="nv">right</span><span class="p">)))</span>
+                       <span class="p">(</span><span class="nv">self</span> <span class="p">(</span><span class="nb">cdr</span> <span class="nv">lst</span><span class="p">)</span>
+                             <span class="p">(</span><span class="nb">cons</span> <span class="p">(</span><span class="nb">car</span> <span class="nv">lst</span><span class="p">)</span> <span class="nv">left</span><span class="p">)</span>
+                             <span class="nv">right</span>
+                             <span class="p">(</span><span class="k">lambda</span> <span class="p">()</span>
+                               <span class="p">(</span><span class="nv">self</span> <span class="p">(</span><span class="nb">cdr</span> <span class="nv">lst</span><span class="p">)</span>
+                                     <span class="nv">left</span>
+                                     <span class="p">(</span><span class="nb">cons</span> <span class="p">(</span><span class="nb">car</span> <span class="nv">lst</span><span class="p">)</span> <span class="nv">right</span><span class="p">)</span>
+                                     <span class="nv">cont</span><span class="p">))))))</span>
+               <span class="p">(</span><span class="nb">cdr</span> <span class="nv">lst</span><span class="p">)</span> <span class="no">nil</span> <span class="p">(</span><span class="nb">list</span> <span class="p">(</span><span class="nb">car</span> <span class="nv">lst</span><span class="p">))</span> 
+               <span class="p">(</span><span class="k">lambda</span> <span class="p">()</span> <span class="no">nil</span><span class="p">)))))</span>
+</pre></div>
+
+<p>To test the function:</p>
+
+<div class="highlight"><pre><span class="nv">GAME24&gt;</span> <span class="p">(</span><span class="k">setq</span> <span class="nv">next</span> <span class="p">(</span><span class="nv">partion-generator</span> <span class="o">'</span><span class="p">(</span><span class="mi">1</span> <span class="mi">2</span> <span class="mi">3</span> <span class="mi">4</span><span class="p">)))</span>
+<span class="err">#</span><span class="nv">&lt;CLOSURE</span> <span class="p">(</span><span class="nv">LAMBDA</span> <span class="p">(</span><span class="nv">&amp;REST</span> <span class="ss">#:G15</span><span class="p">)</span> <span class="ss">:IN</span> <span class="nv">PARTITION-GENERATOR</span><span class="p">)</span> <span class="nv">{1005FB6CCB}&gt;</span>
+<span class="nv">GAME24&gt;</span> <span class="p">(</span><span class="nb">funcall</span> <span class="nv">next</span><span class="p">)</span>
+<span class="p">((</span><span class="mi">4</span> <span class="mi">3</span> <span class="mi">2</span><span class="p">)</span> <span class="p">(</span><span class="mi">1</span><span class="p">))</span>
+<span class="nv">GAME24&gt;</span> <span class="p">(</span><span class="nb">funcall</span> <span class="nv">next</span><span class="p">)</span>
+<span class="p">((</span><span class="mi">3</span> <span class="mi">2</span><span class="p">)</span> <span class="p">(</span><span class="mi">4</span> <span class="mi">1</span><span class="p">))</span>
+<span class="nv">GAME24&gt;</span> <span class="p">(</span><span class="nb">funcall</span> <span class="nv">next</span><span class="p">)</span>
+<span class="p">((</span><span class="mi">4</span> <span class="mi">2</span><span class="p">)</span> <span class="p">(</span><span class="mi">3</span> <span class="mi">1</span><span class="p">))</span>
+<span class="nv">GAME24&gt;</span> <span class="p">(</span><span class="nb">funcall</span> <span class="nv">next</span><span class="p">)</span>
+<span class="p">((</span><span class="mi">2</span><span class="p">)</span> <span class="p">(</span><span class="mi">4</span> <span class="mi">3</span> <span class="mi">1</span><span class="p">))</span>
+<span class="nv">GAME24&gt;</span> <span class="p">(</span><span class="nb">funcall</span> <span class="nv">next</span><span class="p">)</span>
+<span class="p">((</span><span class="mi">4</span> <span class="mi">3</span><span class="p">)</span> <span class="p">(</span><span class="mi">2</span> <span class="mi">1</span><span class="p">))</span>
+<span class="nv">GAME24&gt;</span> <span class="p">(</span><span class="nb">funcall</span> <span class="nv">next</span><span class="p">)</span>
+<span class="p">((</span><span class="mi">3</span><span class="p">)</span> <span class="p">(</span><span class="mi">4</span> <span class="mi">2</span> <span class="mi">1</span><span class="p">))</span>
+<span class="nv">GAME24&gt;</span> <span class="p">(</span><span class="nb">funcall</span> <span class="nv">next</span><span class="p">)</span>
+<span class="p">((</span><span class="mi">4</span><span class="p">)</span> <span class="p">(</span><span class="mi">3</span> <span class="mi">2</span> <span class="mi">1</span><span class="p">))</span>
+<span class="nv">GAME24&gt;</span> <span class="p">(</span><span class="nb">funcall</span> <span class="nv">next</span><span class="p">)</span>
+<span class="no">NIL</span>
+</pre></div>
+
+<p>Note that the closure generates one partition per call, and will produce nil after all the parititons are generated (plesae recall yeild in python and continuation passing style programming).</p>
+
+<h4>
+<a name="the-solver" class="anchor" href="#the-solver"><span class="octicon octicon-link"></span></a>The solver</h4>
+
+<p>The solver is straigt-forward as described above:</p>
+
+<div class="highlight"><pre><span class="p">(</span><span class="nb">defmacro</span> <span class="nv">op</span> <span class="p">(</span><span class="nv">symb</span> <span class="nv">op-1</span> <span class="nv">op-2</span><span class="p">)</span>
+  <span class="o">`</span><span class="p">(</span><span class="k">lambda</span> <span class="p">(</span><span class="nv">a</span> <span class="nv">b</span><span class="p">)</span> <span class="p">(</span><span class="nb">list</span> <span class="ss">',symb</span> <span class="o">,</span><span class="nv">op-1</span> <span class="o">,</span><span class="nv">op-2</span><span class="p">)))</span>
+
+<span class="p">(</span><span class="nb">defun</span> <span class="nv">calc</span> <span class="p">(</span><span class="nb">exp</span><span class="p">)</span>
+  <span class="p">(</span><span class="nv">aif</span> <span class="p">(</span><span class="nb">ignore-errors</span> <span class="p">(</span><span class="nb">eval</span> <span class="nb">exp</span><span class="p">))</span> <span class="nv">it</span> <span class="mi">0</span><span class="p">))</span>
+
+<span class="p">(</span><span class="nb">defun</span> <span class="nv">solve</span> <span class="p">(</span><span class="nv">lst</span><span class="p">)</span>
+  <span class="p">(</span><span class="k">labels</span> <span class="p">((</span><span class="nv">gen</span> <span class="p">(</span><span class="nv">lst</span> <span class="nv">next</span> <span class="nv">accu</span><span class="p">)</span>
+             <span class="p">(</span><span class="nb">case</span> <span class="p">(</span><span class="nb">length</span> <span class="nv">lst</span><span class="p">)</span>
+               <span class="p">(</span><span class="mi">1</span> <span class="nv">lst</span><span class="p">)</span>
+               <span class="p">(</span><span class="no">t</span> <span class="p">(</span><span class="k">if</span> <span class="nv">next</span>
+                      <span class="p">(</span><span class="nv">aif</span> <span class="p">(</span><span class="nb">funcall</span> <span class="nv">next</span><span class="p">)</span>
+                           <span class="p">(</span><span class="nv">gen</span> <span class="nv">lst</span> <span class="nv">next</span>
+                                <span class="p">(</span><span class="nb">append</span> 
+                                 <span class="p">(</span><span class="nv">map-cartesian</span> <span class="p">(</span><span class="k">lambda</span> <span class="p">(</span><span class="nv">x</span> <span class="nv">y</span> <span class="nv">z</span><span class="p">)</span>
+                                                  <span class="p">(</span><span class="nb">funcall</span> <span class="nv">z</span> <span class="nv">x</span> <span class="nv">y</span><span class="p">))</span>
+                                                <span class="p">(</span><span class="nv">gen</span> <span class="p">(</span><span class="nb">car</span> <span class="nv">it</span><span class="p">)</span> <span class="no">nil</span> <span class="no">nil</span><span class="p">)</span>
+                                                <span class="p">(</span><span class="nv">gen</span> <span class="p">(</span><span class="nb">cadr</span> <span class="nv">it</span><span class="p">)</span> <span class="no">nil</span> <span class="no">nil</span><span class="p">)</span>
+                                                <span class="p">(</span><span class="nb">list</span> <span class="p">(</span><span class="nv">op</span> <span class="nb">+</span> <span class="nv">a</span> <span class="nv">b</span><span class="p">)</span>
+                                                      <span class="p">(</span><span class="nv">op</span> <span class="nb">*</span> <span class="nv">a</span> <span class="nv">b</span><span class="p">)</span>
+                                                      <span class="p">(</span><span class="nv">op</span> <span class="nb">/</span> <span class="nv">a</span> <span class="nv">b</span><span class="p">)</span>
+                                                      <span class="p">(</span><span class="nv">op</span> <span class="nb">/</span> <span class="nv">b</span> <span class="nv">a</span><span class="p">)</span>
+                                                      <span class="p">(</span><span class="nv">op</span> <span class="nb">-</span> <span class="nv">a</span> <span class="nv">b</span><span class="p">)</span>
+                                                      <span class="p">(</span><span class="nv">op</span> <span class="nb">-</span> <span class="nv">b</span> <span class="nv">a</span><span class="p">)))</span>
+                                 <span class="nv">accu</span><span class="p">))</span>
+                           <span class="nv">accu</span><span class="p">)</span>
+                      <span class="p">(</span><span class="nv">gen</span> <span class="nv">lst</span> <span class="p">(</span><span class="nv">partition-generator</span> <span class="nv">lst</span><span class="p">)</span> <span class="nv">accu</span><span class="p">))))))</span>
+    <span class="p">(</span><span class="nb">remove-if-not</span> <span class="p">(</span><span class="k">lambda</span> <span class="p">(</span><span class="nv">x</span><span class="p">)</span> <span class="p">(</span><span class="nb">=</span> <span class="p">(</span><span class="nv">calc</span> <span class="nv">x</span><span class="p">)</span> <span class="mi">24</span><span class="p">))</span> <span class="p">(</span><span class="nv">gen</span> <span class="nv">lst</span> <span class="no">nil</span> <span class="no">nil</span><span class="p">))))</span>
+</pre></div>
+
+<p><strong>Notes</strong>: The macro <code>map-cartesian</code> is a analogical to <code>mapcar</code>. In fact, it is the <code>mapcar</code> on the cartesian product of its list arguments. <code>map-cartesian</code> is defined in the library <a href="https://github.com/breakds/basicl">basicl</a>, and the code is given in the appendix. Another spot worth noticing is that the constructed expressions might involve division by zero, therefore we need to apply <code>ignore-erros</code> to the <code>(eval exp)</code> in the definition of <code>calc</code>. We force the evaluation of "division-by-zero" expression to be 0 so that it yeilds an integer that is not equal to 24.</p>
+
+<h3>
+<a name="step-2-a-blank-web-page" class="anchor" href="#step-2-a-blank-web-page"><span class="octicon octicon-link"></span></a>Step 2: A Blank Web Page</h3>
+
+<p>Programming is usually an iterative process and we are definitely going to stick to this tradition. To define a web application with <a href="https://github.com/breakds/lazy-bone">lazy-bone</a>, we call the macro <code>define-simple-app</code>:</p>
+
+<div class="highlight"><pre><span class="p">(</span><span class="nv">define-simple-app</span> <span class="nv">game24-app</span>
+    <span class="p">(</span><span class="ss">:title</span> <span class="s">"Game 24"</span>
+     <span class="ss">:uri</span> <span class="s">"/game24"</span>
+     <span class="ss">:port</span> <span class="mi">9702</span>
+     <span class="ss">:libs</span> <span class="p">(</span><span class="c1">;; JQuery</span>
+            <span class="s">"http://ajax.googleapis.com/ajax/libs/jquery/1.10.1/jquery.min.js"</span>
+                <span class="c1">;; underscore.js</span>
+            <span class="s">"http://cdnjs.cloudflare.com/ajax/libs/underscore.js/1.4.4/underscore-min.js"</span>
+                <span class="c1">;; backbone.js</span>
+            <span class="s">"http://cdnjs.cloudflare.com/ajax/libs/backbone.js/1.0.0/backbone-min.js"</span><span class="p">))</span>
+  <span class="c1">;; the parenscript code goes here)</span>
+</pre></div>
+
+<p>The above code defines a web-application called "game24-app". Most of the parameters are self-explained. With such configuration, the web application can be visited by typing "localhost:9702/game24" in your web browser once it is started. This piece of code implicitly defines two function: <code>start-server</code> and <code>stop-server</code>, where usage are quite clear:</p>
+
+<div class="highlight"><pre><span class="nv">GAME24&gt;</span> <span class="p">(</span><span class="nv">start-server</span><span class="p">)</span>
+<span class="nv">server</span> <span class="nv">started.</span>
+<span class="no">NIL</span>
+<span class="c1">;; Now you can open your web browser and type "localhost:9702/game24"</span>
+</pre></div>
+
+<p>We'll going to write some parenscript code in the place indicated with corresponding comment. Before that, you'll find nothing but a blank webpage in your web browser.</p>
+
+<h3>
+<a name="step-3-first-widget---a-select-box" class="anchor" href="#step-3-first-widget---a-select-box"><span class="octicon octicon-link"></span></a>Step 3: First Widget - A Select Box</h3>
+
+<p>Now we are going to put a select box in the web page. Whether you are familiar with Backbone.js or its millions MVC counterparts, you are reminded that in a MVC framework (Okay, Backbone.js is not quite a strict MVC framework ... let it be ..) we define models to hold the data and define views (of models) to be shown in the web page. <a href="https://github.com/breakds/lazy-bone">lazy-bone</a> follows the same path.</p>
+
+<p>Defining the models and views are just like defining functions in common-lisp. The following code defines the select box for number selection:</p>
+
+<div class="highlight"><pre><span class="p">(</span><span class="nv">def-model</span> <span class="nv">number-set-model</span>
+    <span class="p">((</span><span class="nv">defaults</span> <span class="p">(</span><span class="nv">properties</span> <span class="ss">:selected</span> <span class="mi">0</span><span class="p">))))</span>
+
+<span class="p">(</span><span class="nv">def-view</span> <span class="nv">number-set-view</span>
+    <span class="p">((</span><span class="nv">tag-name</span> <span class="s">"select"</span><span class="p">)</span>
+     <span class="p">(</span><span class="nv">template</span> <span class="s">"&lt;option&gt;1&lt;/option&gt;&lt;option&gt;2&lt;/option&gt;&lt;option&gt;3&lt;/option&gt;"</span><span class="p">)</span>
+     <span class="p">(</span><span class="nv">initialize</span> <span class="p">(</span><span class="nv">lazy-init</span>
+                  <span class="p">(</span><span class="nv">append-to-parent</span><span class="p">)))</span>
+     <span class="p">(</span><span class="nv">render</span> <span class="p">(</span><span class="k">lambda</span> <span class="p">()</span>
+               <span class="p">(</span><span class="nv">render-from-model</span><span class="p">)</span>
+               <span class="nv">this</span><span class="p">))))</span>
+</pre></div>
+
+<p>The body of view and model definition is a list of attribute definition, where each attribute definition specifies an attribute name and an attribute value. For example, in the above code segment, the model <code>number-set-model</code> has attribute <code>defaults</code> specified, whose value is <code>{ selected : }</code>. The view <code>number-set-view</code> has several attributes specified, where the <code>tag-name</code> is "select" (once instantiated, it becomes a "" in the DOM), the template is several options (once instantiated, the content between "" and ""), <code>initialize</code> will be a lambda function that appends the "" html segment to its parent node (<code>lazy-init</code> is a macro that defines a lambda function that also execute initialization code of its super class), and finally, <code>render</code> is a lambda function that actually do the render job and return <code>this</code>. Note that we specify values for those attributes in <strong>parenscript</strong>, which means that they do not get evaluted but will be translated to javascript in the future.</p>
+
+<p>We then plug this view into our web application. Append those parenscript code in our web application definition:</p>
+
+<div class="highlight"><pre><span class="p">(</span><span class="nv">define-simple-app</span> <span class="nv">game24-app</span>
+    <span class="p">(</span><span class="ss">:title</span> <span class="s">"Game 24"</span>
+     <span class="ss">:uri</span> <span class="s">"/game24"</span>
+     <span class="ss">:port</span> <span class="mi">9702</span>
+     <span class="ss">:libs</span> <span class="p">(</span><span class="c1">;; JQuery</span>
+            <span class="s">"http://ajax.googleapis.com/ajax/libs/jquery/1.10.1/jquery.min.js"</span>
+                <span class="c1">;; underscore.js</span>
+            <span class="s">"http://cdnjs.cloudflare.com/ajax/libs/underscore.js/1.4.4/underscore-min.js"</span>
+                <span class="c1">;; backbone.js</span>
+            <span class="s">"http://cdnjs.cloudflare.com/ajax/libs/backbone.js/1.0.0/backbone-min.js"</span><span class="p">))</span>
+  <span class="c1">;; appende parenscript code</span>
+  <span class="p">(</span><span class="nb">defvar</span> <span class="nv">number-set-0</span> <span class="p">(</span><span class="nv">duplicate</span> <span class="nv">number-set-model</span><span class="p">))</span>
+  <span class="p">(</span><span class="nb">defvar</span> <span class="nv">number-set-view-0</span> <span class="p">(</span><span class="nv">duplicate</span> <span class="nv">number-set-view</span>
+                                       <span class="ss">:model</span> <span class="nv">number-set-0</span><span class="p">)))</span> 
+<span class="c1">;; number-set-view-0 is an instance of number-set-view whose corresponding model is number-set-0.</span>
+</pre></div>
+
+<p>Those two line simply means we have number-set-0 as an instance of number-set-model as we defined above, and an instance of number-set-view called number-set-view-0. The macro <code>duplicate</code> accepts keyword parameter list as shown and commented in the code.</p>
+
+<p>Open your browser again and you'll see a select box there now.</p>
+
+<h3>
+<a name="step-4-embed-some-common-lisp-code" class="anchor" href="#step-4-embed-some-common-lisp-code"><span class="octicon octicon-link"></span></a>Step 4: Embed Some Common Lisp Code</h3>
+
+<p>Take another look at the view definition code from the above section.</p>
+
+<div class="highlight"><pre><span class="p">(</span><span class="nv">def-view</span> <span class="nv">number-set-view</span>
+    <span class="p">((</span><span class="nv">tag-name</span> <span class="s">"select"</span><span class="p">)</span>
+     <span class="p">(</span><span class="nv">template</span> <span class="s">"&lt;option&gt;1&lt;/option&gt;&lt;option&gt;2&lt;/option&gt;&lt;option&gt;3&lt;/option&gt;"</span><span class="p">)</span>
+     <span class="p">(</span><span class="nv">initialize</span> <span class="p">(</span><span class="nv">lazy-init</span>
+                  <span class="p">(</span><span class="nv">append-to-parent</span><span class="p">)))</span>
+     <span class="p">(</span><span class="nv">render</span> <span class="p">(</span><span class="k">lambda</span> <span class="p">()</span>
+               <span class="p">(</span><span class="nv">render-from-model</span><span class="p">)</span>
+               <span class="nv">this</span><span class="p">))))</span>
+</pre></div>
+
+<p>I believe I am not the only one consider the "..." string tedious. What if we want 10 options? 100? Here comes one benefit of writing parenscript code: we can embed common lisp code in it so that it gets evaluted before translated to javascript. With <code>eval-lisp</code>, the above code can be made to support option 1 through 9 as</p>
+
+<div class="highlight"><pre><span class="p">(</span><span class="nv">def-view</span> <span class="nv">number-set-view</span>
+    <span class="p">((</span><span class="nv">tag-name</span> <span class="s">"select"</span><span class="p">)</span>
+     <span class="p">(</span><span class="nv">template</span> <span class="p">(</span><span class="nv">eval-lisp</span> 
+                <span class="p">(</span><span class="nb">funcall</span> <span class="p">(</span><span class="nv">alambda</span> <span class="p">(</span><span class="nv">k</span> <span class="nv">accu</span><span class="p">)</span>
+                           <span class="p">(</span><span class="k">if</span> <span class="p">(</span><span class="nb">=</span> <span class="nv">k</span> <span class="mi">0</span><span class="p">)</span> <span class="nv">accu</span>
+                               <span class="p">(</span><span class="nv">self</span> <span class="p">(</span><span class="nb">1-</span> <span class="nv">k</span><span class="p">)</span>
+                                     <span class="p">(</span><span class="nv">mkstr</span> <span class="s">"&lt;option&gt;"</span> <span class="nv">k</span> <span class="s">"&lt;/option&gt;"</span> <span class="nv">accu</span><span class="p">))))</span>
+                         <span class="mi">9</span> <span class="s">""</span><span class="p">)))</span>
+     <span class="p">(</span><span class="nv">initialize</span> <span class="p">(</span><span class="nv">lazy-init</span>
+                  <span class="p">(</span><span class="nv">append-to-parent</span><span class="p">)))</span>
+     <span class="p">(</span><span class="nv">render</span> <span class="p">(</span><span class="k">lambda</span> <span class="p">()</span>
+               <span class="p">(</span><span class="nv">render-from-model</span><span class="p">)</span>
+               <span class="nv">this</span><span class="p">))))</span>
+</pre></div>
+
+<p>And we can do even better! If we make 9 a special variable, we can then modify it even when the web server is running.</p>
+
+<div class="highlight"><pre><span class="p">(</span><span class="nb">defparameter</span> <span class="vg">*max-number*</span> <span class="mi">9</span><span class="p">)</span>
+
+<span class="p">(</span><span class="nv">def-view</span> <span class="nv">number-set-view</span>
+    <span class="p">((</span><span class="nv">tag-name</span> <span class="s">"select"</span><span class="p">)</span>
+     <span class="p">(</span><span class="nv">template</span> <span class="p">(</span><span class="nv">eval-lisp</span> 
+                <span class="p">(</span><span class="nb">funcall</span> <span class="p">(</span><span class="nv">alambda</span> <span class="p">(</span><span class="nv">k</span> <span class="nv">accu</span><span class="p">)</span>
+                           <span class="p">(</span><span class="k">if</span> <span class="p">(</span><span class="nb">=</span> <span class="nv">k</span> <span class="mi">0</span><span class="p">)</span> <span class="nv">accu</span>
+                               <span class="p">(</span><span class="nv">self</span> <span class="p">(</span><span class="nb">1-</span> <span class="nv">k</span><span class="p">)</span>
+                                     <span class="p">(</span><span class="nv">mkstr</span> <span class="s">"&lt;option&gt;"</span> <span class="nv">k</span> <span class="s">"&lt;/option&gt;"</span> <span class="nv">accu</span><span class="p">))))</span>
+                         <span class="vg">*max-number*</span> <span class="s">""</span><span class="p">)))</span>
+     <span class="p">(</span><span class="nv">initialize</span> <span class="p">(</span><span class="nv">lazy-init</span>
+                  <span class="p">(</span><span class="nv">append-to-parent</span><span class="p">)))</span>
+     <span class="p">(</span><span class="nv">render</span> <span class="p">(</span><span class="k">lambda</span> <span class="p">()</span>
+               <span class="p">(</span><span class="nv">render-from-model</span><span class="p">)</span>
+               <span class="nv">this</span><span class="p">))))</span>
+</pre></div>
+
+<h3>
+<a name="step-5-four-select-boxes" class="anchor" href="#step-5-four-select-boxes"><span class="octicon octicon-link"></span></a>Step 5: Four Select Boxes</h3>
+
+<p>Did I forget to say we have to have four select boxes for the 24 Game? Sounds easy enough:</p>
+
+<div class="highlight"><pre><span class="p">(</span><span class="nv">define-simple-app</span> <span class="nv">game24-app</span>
+    <span class="p">(</span><span class="ss">:title</span> <span class="s">"Game 24"</span>
+     <span class="ss">:uri</span> <span class="s">"/game24"</span>
+     <span class="ss">:port</span> <span class="mi">9702</span>
+     <span class="ss">:libs</span> <span class="p">(</span><span class="c1">;; JQuery</span>
+            <span class="s">"http://ajax.googleapis.com/ajax/libs/jquery/1.10.1/jquery.min.js"</span>
+                <span class="c1">;; underscore.js</span>
+            <span class="s">"http://cdnjs.cloudflare.com/ajax/libs/underscore.js/1.4.4/underscore-min.js"</span>
+                <span class="c1">;; backbone.js</span>
+            <span class="s">"http://cdnjs.cloudflare.com/ajax/libs/backbone.js/1.0.0/backbone-min.js"</span><span class="p">))</span>
+  <span class="c1">;; parenscript code starts here</span>
+  <span class="p">(</span><span class="nb">defvar</span> <span class="nv">number-set-0</span> <span class="p">(</span><span class="nv">duplicate</span> <span class="nv">number-set-model</span><span class="p">))</span>
+  <span class="p">(</span><span class="nb">defvar</span> <span class="nv">number-set-view-0</span> <span class="p">(</span><span class="nv">duplicate</span> <span class="nv">number-set-view</span>
+                                       <span class="ss">:model</span> <span class="nv">number-set-0</span><span class="p">))</span>
+  <span class="p">(</span><span class="nb">defvar</span> <span class="nv">number-set-1</span> <span class="p">(</span><span class="nv">duplicate</span> <span class="nv">number-set-model</span><span class="p">))</span>
+  <span class="p">(</span><span class="nb">defvar</span> <span class="nv">number-set-view-1</span> <span class="p">(</span><span class="nv">duplicate</span> <span class="nv">number-set-view</span>
+                                       <span class="ss">:model</span> <span class="nv">number-set-1</span><span class="p">))</span>
+  <span class="p">(</span><span class="nb">defvar</span> <span class="nv">number-set-2</span> <span class="p">(</span><span class="nv">duplicate</span> <span class="nv">number-set-model</span><span class="p">))</span>
+  <span class="p">(</span><span class="nb">defvar</span> <span class="nv">number-set-view-2</span> <span class="p">(</span><span class="nv">duplicate</span> <span class="nv">number-set-view</span>
+                                       <span class="ss">:model</span> <span class="nv">number-set-2</span><span class="p">))</span>
+  <span class="p">(</span><span class="nb">defvar</span> <span class="nv">number-set-3</span> <span class="p">(</span><span class="nv">duplicate</span> <span class="nv">number-set-model</span><span class="p">))</span>
+  <span class="p">(</span><span class="nb">defvar</span> <span class="nv">number-set-view-3</span> <span class="p">(</span><span class="nv">duplicate</span> <span class="nv">number-set-view</span>
+                                       <span class="ss">:model</span> <span class="nv">number-set-3</span><span class="p">)))</span>
+</pre></div>
+
+<p>Oh no, I smell something really ordorous &gt;_&lt;. Glad we don't have to do it for 100 times. But what if we do? </p>
+
+<p>Though not necessary, I am going to demonstrate another trick of parenscript here, the <code>macrolet</code>. we can first use <code>macrolet</code> to define a inline macro, and apply it for four times:</p>
+
+<div class="highlight"><pre><span class="p">(</span><span class="nv">define-simple-app</span> <span class="nv">game24-app</span>
+    <span class="p">(</span><span class="ss">:title</span> <span class="s">"Game 24"</span>
+            <span class="ss">:uri</span> <span class="s">"/game24"</span>
+            <span class="ss">:port</span> <span class="mi">9702</span>
+            <span class="ss">:libs</span> <span class="p">(</span><span class="c1">;; JQuery</span>
+            <span class="s">"http://ajax.googleapis.com/ajax/libs/jquery/1.10.1/jquery.min.js"</span>
+                <span class="c1">;; underscore.js</span>
+            <span class="s">"http://cdnjs.cloudflare.com/ajax/libs/underscore.js/1.4.4/underscore-min.js"</span>
+                <span class="c1">;; backbone.js</span>
+            <span class="s">"http://cdnjs.cloudflare.com/ajax/libs/backbone.js/1.0.0/backbone-min.js"</span><span class="p">))</span>
+  <span class="p">(</span><span class="k">macrolet</span> <span class="p">((</span><span class="nv">place-view</span> <span class="p">(</span><span class="nv">id</span><span class="p">)</span>
+               <span class="o">`</span><span class="p">(</span><span class="k">progn</span> <span class="p">(</span><span class="nb">defvar</span> <span class="o">,</span><span class="p">(</span><span class="nv">symb</span> <span class="ss">'number-set-</span> <span class="nv">id</span><span class="p">)</span> 
+                         <span class="p">(</span><span class="nv">duplicate</span> <span class="nv">number-set-model</span><span class="p">))</span>
+                       <span class="p">(</span><span class="nb">defvar</span> <span class="o">,</span><span class="p">(</span><span class="nv">symb</span> <span class="ss">'number-set-view-</span> <span class="nv">id</span><span class="p">)</span>
+                         <span class="p">(</span><span class="nv">duplicate</span> <span class="nv">number-set-view</span>
+                                    <span class="ss">:model</span> <span class="nv">number-set-0</span><span class="p">)))))</span>
+    <span class="p">(</span><span class="nv">place-view</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">(</span><span class="nv">place-view</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="p">(</span><span class="nv">place-view</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="p">(</span><span class="nv">place-view</span> <span class="mi">3</span><span class="p">)))</span>
+</pre></div>
+
+<h3>
+<a name="step-6-intraction-with-model" class="anchor" href="#step-6-intraction-with-model"><span class="octicon octicon-link"></span></a>Step 6: Intraction with Model</h3>
+
+<p>Wondering why we have a property called "selected" in our model definition? You should. That is a property which will be changed if you change the selected integer in the select box. We have to make a connecton between the view and its model. </p>
+
+<p>The HTML tag "" will emit an event "changed" when the user alters the selection. Appending some attribute slots in our view definition will create a callback for this event:</p>
+
+<div class="highlight"><pre><span class="p">(</span><span class="nv">def-view</span> <span class="nv">number-set-view</span>
+    <span class="p">((</span><span class="nv">tag-name</span> <span class="s">"select"</span><span class="p">)</span>
+     <span class="p">(</span><span class="nv">template</span> <span class="p">(</span><span class="nv">eval-lisp</span> 
+                <span class="p">(</span><span class="nb">funcall</span> <span class="p">(</span><span class="nv">alambda</span> <span class="p">(</span><span class="nv">k</span> <span class="nv">accu</span><span class="p">)</span>
+                           <span class="p">(</span><span class="k">if</span> <span class="p">(</span><span class="nb">=</span> <span class="nv">k</span> <span class="mi">0</span><span class="p">)</span> <span class="nv">accu</span>
+                               <span class="p">(</span><span class="nv">self</span> <span class="p">(</span><span class="nb">1-</span> <span class="nv">k</span><span class="p">)</span>
+                                     <span class="p">(</span><span class="nv">mkstr</span> <span class="s">"&lt;option&gt;"</span> <span class="nv">k</span> <span class="s">"&lt;/option&gt;"</span> <span class="nv">accu</span><span class="p">))))</span>
+                         <span class="vg">*max-number*</span> <span class="s">""</span><span class="p">)))</span>
+     <span class="p">(</span><span class="nv">initialize</span> <span class="p">(</span><span class="nv">lazy-init</span>
+                  <span class="p">(</span><span class="nv">append-to-parent</span><span class="p">)))</span>
+     <span class="p">(</span><span class="nv">render</span> <span class="p">(</span><span class="k">lambda</span> <span class="p">()</span>
+               <span class="p">(</span><span class="nv">render-from-model</span><span class="p">)</span>
+               <span class="nv">this</span><span class="p">))</span>
+     <span class="p">(</span><span class="nv">events</span> <span class="p">(</span><span class="nv">create</span> <span class="s">"change"</span> <span class="s">"changed"</span><span class="p">))</span>
+     <span class="p">(</span><span class="nv">changed</span> <span class="p">(</span><span class="k">lambda</span> <span class="p">()</span>
+                <span class="p">(</span><span class="nv">@set</span> <span class="s">"selected"</span> <span class="p">(</span><span class="nv">*number</span> <span class="p">(</span><span class="nv">@.</span> <span class="nv">this</span> <span class="nv">$el</span> <span class="p">(</span><span class="nv">val</span><span class="p">))))</span>
+                <span class="c1">;; for debug</span>
+                <span class="p">(</span><span class="nb">trace</span> <span class="p">(</span><span class="nv">@get</span> <span class="s">"selected"</span><span class="p">))</span>
+                <span class="no">nil</span><span class="p">))))</span>
+</pre></div>
+
+<p><strong>Note</strong> that <code>create</code> in parenscript does object creation. That says, <code>(create a b c d)</code> will be translated into <code>{ a: b, c: d}</code> in javascript. There are three new macros introduced here</p>
+
+<ul>
+<li>
+<code>@set</code> sets the specified property of the view's model. </li>
+<li>
+<code>trace</code> prints its argument to the console.</li>
+<li>
+<code>@.</code> and <code>@</code> are the chain macros that mimic the <code>.</code> in javascript. <code>(@. a (b c) d (e f))</code> translates to <code>a.b(c).d.e(f)</code> in javascript. </li>
+</ul><p>Test the web app in your browser now with the console open. Whenever you modify the selection of any select box, its model's new "selected" value will be printed in the console.</p>
+
+<h3>
+<a name="step-7-a-submit-button" class="anchor" href="#step-7-a-submit-button"><span class="octicon octicon-link"></span></a>Step 7: A Submit Button</h3>
+
+<div class="highlight"><pre><span class="p">(</span><span class="nv">def-model</span> <span class="nv">submit-model</span>
+    <span class="p">((</span><span class="nv">defaults</span> <span class="p">(</span><span class="nv">properties</span> <span class="ss">:vent</span> <span class="nv">undefined</span><span class="p">))))</span>
+
+<span class="p">(</span><span class="nv">def-view</span> <span class="nv">submit-button</span>
+    <span class="p">((</span><span class="nv">tag-name</span> <span class="s">"button"</span><span class="p">)</span>
+     <span class="p">(</span><span class="nv">template</span> <span class="s">"Submit"</span><span class="p">)</span>
+     <span class="p">(</span><span class="nv">initialize</span> <span class="p">(</span><span class="nv">lazy-init</span>
+                  <span class="p">(</span><span class="nv">append-to-parent</span><span class="p">)))</span>
+     <span class="p">(</span><span class="nv">render</span> <span class="p">(</span><span class="k">lambda</span> <span class="p">()</span>
+               <span class="p">(</span><span class="nv">render-from-model</span><span class="p">)</span>
+               <span class="nv">this</span><span class="p">))))</span>
+</pre></div>
+
+<p>Nothing new here. The property <code>vent</code> will prove its usefulness later. Add some code to the web app definition so that the button will be shown:</p>
+
+<div class="highlight"><pre><span class="p">(</span><span class="nv">define-simple-app</span> <span class="nv">game24-app</span>
+    <span class="p">(</span><span class="ss">:title</span> <span class="s">"Game 24"</span>
+            <span class="ss">:uri</span> <span class="s">"/game24"</span>
+            <span class="ss">:port</span> <span class="mi">9702</span>
+            <span class="ss">:libs</span> <span class="p">(</span><span class="c1">;; JQuery</span>
+            <span class="s">"http://ajax.googleapis.com/ajax/libs/jquery/1.10.1/jquery.min.js"</span>
+                <span class="c1">;; underscore.js</span>
+            <span class="s">"http://cdnjs.cloudflare.com/ajax/libs/underscore.js/1.4.4/underscore-min.js"</span>
+                <span class="c1">;; backbone.js</span>
+            <span class="s">"http://cdnjs.cloudflare.com/ajax/libs/backbone.js/1.0.0/backbone-min.js"</span><span class="p">))</span>
+  <span class="p">(</span><span class="k">macrolet</span> <span class="p">((</span><span class="nv">place-view</span> <span class="p">(</span><span class="nv">id</span><span class="p">)</span>
+               <span class="o">`</span><span class="p">(</span><span class="k">progn</span> <span class="p">(</span><span class="nb">defvar</span> <span class="o">,</span><span class="p">(</span><span class="nv">symb</span> <span class="ss">'number-set-</span> <span class="nv">id</span><span class="p">)</span> 
+                         <span class="p">(</span><span class="nv">duplicate</span> <span class="nv">number-set-model</span><span class="p">))</span>
+                       <span class="p">(</span><span class="nb">defvar</span> <span class="o">,</span><span class="p">(</span><span class="nv">symb</span> <span class="ss">'number-set-view-</span> <span class="nv">id</span><span class="p">)</span>
+                         <span class="p">(</span><span class="nv">duplicate</span> <span class="nv">number-set-view</span>
+                                    <span class="ss">:model</span> <span class="nv">number-set-0</span><span class="p">)))))</span>
+    <span class="p">(</span><span class="nv">place-view</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">(</span><span class="nv">place-view</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="p">(</span><span class="nv">place-view</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="p">(</span><span class="nv">place-view</span> <span class="mi">3</span><span class="p">))</span>
+  <span class="p">(</span><span class="nb">defvar</span> <span class="nv">button</span> <span class="p">(</span><span class="nv">duplicate</span> <span class="nv">submit-button</span>
+                            <span class="ss">:model</span> <span class="p">(</span><span class="nv">duplicate</span> <span class="nv">submit-model</span><span class="p">))))</span>
+</pre></div>
+
+<p>You'll see the button in your browser if you test it now. The only problem you see might be that no matter how hard you strike the button, nothing happens. Well, that's forgivable. After all, we haven't associated its "click" event to anything.</p>
+
+<h3>
+<a name="step-8-a-global-event-manager" class="anchor" href="#step-8-a-global-event-manager"><span class="octicon octicon-link"></span></a>Step 8: A Global Event Manager</h3>
+
+<p>We are now going to define a global event manager called "vent" that listen to registered events and perform some registered callback work. The following piece of code in the very beginning of the parenscript section translates (to English) that: when never I heard about the event "submit-event", I print "ok" to the console.</p>
+
+<div class="highlight"><pre><span class="p">(</span><span class="nv">define-simple-app</span> <span class="nv">game24-app</span>
+    <span class="p">(</span><span class="ss">:title</span> <span class="s">"Game 24"</span>
+            <span class="ss">:uri</span> <span class="s">"/game24"</span>
+            <span class="ss">:port</span> <span class="mi">9702</span>
+            <span class="ss">:libs</span> <span class="p">(</span><span class="c1">;; JQuery</span>
+            <span class="s">"http://ajax.googleapis.com/ajax/libs/jquery/1.10.1/jquery.min.js"</span>
+                <span class="c1">;; underscore.js</span>
+            <span class="s">"http://cdnjs.cloudflare.com/ajax/libs/underscore.js/1.4.4/underscore-min.js"</span>
+                <span class="c1">;; backbone.js</span>
+            <span class="s">"http://cdnjs.cloudflare.com/ajax/libs/backbone.js/1.0.0/backbone-min.js"</span><span class="p">))</span>
+  <span class="c1">;; parenscript starts here</span>
+  <span class="p">(</span><span class="nv">create-event-manager</span> <span class="nv">vent</span>
+                        <span class="s">"submit-event"</span> <span class="p">(</span><span class="k">lambda</span> <span class="p">()</span>
+                                         <span class="p">(</span><span class="nb">trace</span> <span class="s">"ok"</span><span class="p">)))</span>
+  <span class="p">(</span><span class="k">macrolet</span> <span class="p">((</span><span class="nv">place-view</span> <span class="p">(</span><span class="nv">id</span><span class="p">)</span>
+               <span class="o">`</span><span class="p">(</span><span class="k">progn</span> <span class="p">(</span><span class="nb">defvar</span> <span class="o">,</span><span class="p">(</span><span class="nv">symb</span> <span class="ss">'number-set-</span> <span class="nv">id</span><span class="p">)</span> 
+                         <span class="p">(</span><span class="nv">duplicate</span> <span class="nv">number-set-model</span><span class="p">))</span>
+                       <span class="p">(</span><span class="nb">defvar</span> <span class="o">,</span><span class="p">(</span><span class="nv">symb</span> <span class="ss">'number-set-view-</span> <span class="nv">id</span><span class="p">)</span>
+                         <span class="p">(</span><span class="nv">duplicate</span> <span class="nv">number-set-view</span>
+                                    <span class="ss">:model</span> <span class="nv">number-set-0</span><span class="p">)))))</span>
+    <span class="p">(</span><span class="nv">place-view</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">(</span><span class="nv">place-view</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="p">(</span><span class="nv">place-view</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="p">(</span><span class="nv">place-view</span> <span class="mi">3</span><span class="p">))</span>
+  <span class="p">(</span><span class="nb">defvar</span> <span class="nv">button</span> <span class="p">(</span><span class="nv">duplicate</span> <span class="nv">submit-button</span>
+                            <span class="ss">:model</span> <span class="p">(</span><span class="nv">duplicate</span> <span class="nv">submit-model</span>
+                                              <span class="ss">:vent</span> <span class="nv">vent</span><span class="p">))))</span> <span class="c1">;; pass the global manager to the model</span>
+</pre></div>
+
+<p>Not so hard, huh? Note that we also pass the global manager "vent" to the "vent" property of the button's model. We can now control the button to emit a "submit-event" to the global event manager whenever clicked. The same "events" attribute trick will do. Modify the defnition of the button as:</p>
+
+<div class="highlight"><pre><span class="p">(</span><span class="nv">def-model</span> <span class="nv">submit-model</span>
+    <span class="p">((</span><span class="nv">defaults</span> <span class="p">(</span><span class="nv">properties</span> <span class="ss">:vent</span> <span class="nv">undefined</span><span class="p">))))</span>
+
+<span class="p">(</span><span class="nv">def-view</span> <span class="nv">submit-button</span>
+    <span class="p">((</span><span class="nv">tag-name</span> <span class="s">"button"</span><span class="p">)</span>
+     <span class="p">(</span><span class="nv">template</span> <span class="s">"Submit"</span><span class="p">)</span>
+     <span class="p">(</span><span class="nv">initialize</span> <span class="p">(</span><span class="nv">lazy-init</span>
+                  <span class="p">(</span><span class="nv">append-to-parent</span><span class="p">)))</span>
+     <span class="p">(</span><span class="nv">render</span> <span class="p">(</span><span class="k">lambda</span> <span class="p">()</span>
+               <span class="p">(</span><span class="nv">render-from-model</span><span class="p">)</span>
+               <span class="nv">this</span><span class="p">))</span>
+     <span class="p">(</span><span class="nv">events</span> <span class="p">(</span><span class="nv">create</span> <span class="s">"click"</span> <span class="s">"clicked"</span><span class="p">))</span>
+     <span class="p">(</span><span class="nv">clicked</span> <span class="p">(</span><span class="k">lambda</span> <span class="p">()</span>
+                <span class="p">(</span><span class="nv">@.</span> <span class="p">(</span><span class="nv">@get</span> <span class="s">"vent"</span><span class="p">)</span> 
+                    <span class="p">(</span><span class="nv">trigger</span> <span class="s">"submit-event"</span><span class="p">))))))</span>
+</pre></div>
+
+<p><strong>Note</strong> a new macro is introduced here called <code>@get</code>. It's similar to <code>@set</code> except for that it reads the property instead of writing to it.</p>
+
+<p>Now you should be able to see "ok" being printed in the console while click the button. </p>
+
+<h3>
+<a name="step-9-the-solution-table" class="anchor" href="#step-9-the-solution-table"><span class="octicon octicon-link"></span></a>Step 9: The Solution Table</h3>
+
+<p>The solution table will be an HTML "</p><table>" tag displaying the solutions to the 24 Game. Defining them is similary to the button and the select box, except for that the model is actually a collection instead of a single model. The following code will accomplish the task:
+
+<div class="highlight"><pre><span class="p">(</span><span class="nv">def-model</span> <span class="nv">single-solution-model</span>
+    <span class="p">((</span><span class="nv">defaults</span> <span class="p">(</span><span class="nv">properties</span> <span class="ss">:solution</span> <span class="s">""</span><span class="p">))))</span>
+
+<span class="p">(</span><span class="nv">def-view</span> <span class="nv">single-solution-view</span>
+    <span class="p">((</span><span class="nv">tag-name</span> <span class="s">"tr"</span><span class="p">)</span>
+     <span class="p">(</span><span class="nv">template</span> <span class="s">"&lt;td&gt;&lt;%=solution%&gt;&lt;/td&gt;"</span><span class="p">)</span>
+     <span class="p">(</span><span class="nv">initialize</span> <span class="p">(</span><span class="nv">lazy-init</span>
+                  <span class="p">(</span><span class="nv">append-to-parent</span><span class="p">)))</span>
+     <span class="p">(</span><span class="nv">render</span> <span class="p">(</span><span class="k">lambda</span> <span class="p">()</span>
+               <span class="p">(</span><span class="nv">render-from-model</span><span class="p">)</span>
+               <span class="nv">this</span><span class="p">))))</span>
+
+<span class="p">(</span><span class="nv">def-collection</span> <span class="nv">solutions-model</span>
+    <span class="p">((</span><span class="nv">model</span> <span class="nv">single-solution-model</span><span class="p">)))</span>
+
+<span class="p">(</span><span class="nv">def-collection-view</span> <span class="nv">solutions-view</span>
+    <span class="p">((</span><span class="nv">tag-name</span> <span class="s">"table"</span><span class="p">)</span>
+     <span class="p">(</span><span class="nv">sub-view</span> <span class="nv">single-solution-view</span><span class="p">)</span>
+     <span class="p">(</span><span class="nv">initialize</span> <span class="p">(</span><span class="nv">lazy-init</span>
+                  <span class="p">(</span><span class="nv">append-to-parent</span><span class="p">)</span>
+                  <span class="p">(</span><span class="nv">@.</span> <span class="nv">this</span> <span class="nv">model</span> <span class="nb">list</span> <span class="p">(</span><span class="nv">each</span> <span class="p">(</span><span class="nv">@</span> <span class="nv">this</span> <span class="nv">lazy-add</span><span class="p">)))))</span>
+     <span class="p">(</span><span class="nv">render</span> <span class="p">(</span><span class="k">lambda</span> <span class="p">()</span>
+               <span class="p">(</span><span class="nv">render-from-model</span><span class="p">)</span>
+               <span class="nv">this</span><span class="p">))))</span>
+</pre></div>
+
+<p><strong>Note</strong> that there are several new attributes here in the <code>collection</code> definition and the <code>collection-view</code> definition. A collection is actually a list of its sub model isntances, therefore we need to specify its sub model by setting the attribute "model". Instantiate a collection view needs also to instantiate the view for the sub models, which requires specify the "sub-view" attribute. You might also want to refer to <a href="http://backbonejs.org/#Collection">Backbone.js: Collection</a>.</p>
+
+<p>You can then place the collection-view in your web application:</p>
+
+<div class="highlight"><pre><span class="p">(</span><span class="nv">define-simple-app</span> <span class="nv">game24-app</span>
+    <span class="p">(</span><span class="ss">:title</span> <span class="s">"Game 24"</span>
+            <span class="ss">:uri</span> <span class="s">"/game24"</span>
+            <span class="ss">:port</span> <span class="mi">9702</span>
+            <span class="ss">:libs</span> <span class="p">(</span><span class="c1">;; JQuery</span>
+            <span class="s">"http://ajax.googleapis.com/ajax/libs/jquery/1.10.1/jquery.min.js"</span>
+                <span class="c1">;; underscore.js</span>
+            <span class="s">"http://cdnjs.cloudflare.com/ajax/libs/underscore.js/1.4.4/underscore-min.js"</span>
+                <span class="c1">;; backbone.js</span>
+            <span class="s">"http://cdnjs.cloudflare.com/ajax/libs/backbone.js/1.0.0/backbone-min.js"</span><span class="p">))</span>
+  <span class="c1">;; parenscript starts here</span>
+  <span class="p">(</span><span class="nv">create-event-manager</span> <span class="nv">vent</span>
+                        <span class="s">"submit-event"</span> <span class="p">(</span><span class="k">lambda</span> <span class="p">()</span>
+                                         <span class="p">(</span><span class="nb">trace</span> <span class="s">"ok"</span><span class="p">)))</span>
+  <span class="p">(</span><span class="k">macrolet</span> <span class="p">((</span><span class="nv">place-view</span> <span class="p">(</span><span class="nv">id</span><span class="p">)</span>
+               <span class="o">`</span><span class="p">(</span><span class="k">progn</span> <span class="p">(</span><span class="nb">defvar</span> <span class="o">,</span><span class="p">(</span><span class="nv">symb</span> <span class="ss">'number-set-</span> <span class="nv">id</span><span class="p">)</span> 
+                         <span class="p">(</span><span class="nv">duplicate</span> <span class="nv">number-set-model</span><span class="p">))</span>
+                       <span class="p">(</span><span class="nb">defvar</span> <span class="o">,</span><span class="p">(</span><span class="nv">symb</span> <span class="ss">'number-set-view-</span> <span class="nv">id</span><span class="p">)</span>
+                         <span class="p">(</span><span class="nv">duplicate</span> <span class="nv">number-set-view</span>
+                                    <span class="ss">:model</span> <span class="nv">number-set-0</span><span class="p">)))))</span>
+    <span class="p">(</span><span class="nv">place-view</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">(</span><span class="nv">place-view</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="p">(</span><span class="nv">place-view</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="p">(</span><span class="nv">place-view</span> <span class="mi">3</span><span class="p">))</span>
+  <span class="p">(</span><span class="nb">defvar</span> <span class="nv">button</span> <span class="p">(</span><span class="nv">duplicate</span> <span class="nv">submit-button</span>
+                            <span class="ss">:model</span> <span class="p">(</span><span class="nv">duplicate</span> <span class="nv">submit-model</span>
+                                              <span class="ss">:vent</span> <span class="nv">vent</span><span class="p">)))</span>
+
+
+  <span class="p">(</span><span class="nb">defvar</span> <span class="nv">solutions</span> <span class="p">(</span><span class="nv">duplicate</span> <span class="nv">solutions-model</span><span class="p">))</span> <span class="c1">;; the solution table's model</span>
+
+  <span class="p">(</span><span class="nb">defvar</span> <span class="nv">solution-list</span> <span class="p">(</span><span class="nv">duplicate</span> <span class="nv">solutions-view</span> 
+                                   <span class="ss">:model</span> <span class="nv">solutions</span><span class="p">)))</span> <span class="c1">;; the solution table's view                                              </span>
+</pre></div>
+
+<p>But <strong>do not</strong> expect to see anything in your browser now. The solution model (collection) <code>solutions</code> is still empty for this moment.</p>
+
+<h3>
+<a name="step-10-fetch-the-solutions-from-the-server" class="anchor" href="#step-10-fetch-the-solutions-from-the-server"><span class="octicon octicon-link"></span></a>Step 10: Fetch the Solutions from the Server</h3>
+
+<p>You might want to ask, hey, where is ... the server? Do we write the server somewhere else?</p>
+
+<p>The answer is .. Nope, we are just going to write it, here inside the parenscript code of your web app.</p>
+
+<p>And you hear me clearly.</p>
+
+<p>The macro <code>@fetch</code> does the job exactly. I am going to first illustrate its usage by a simple example:</p>
+
+<div class="highlight"><pre><span class="p">(</span><span class="nv">@fetch</span> <span class="nv">obj</span> 
+        <span class="ss">:url</span> <span class="s">"/game24/test"</span>
+        <span class="ss">:type</span> <span class="s">"post"</span>
+        <span class="ss">:server</span> <span class="p">(</span><span class="k">let</span> <span class="p">((</span><span class="nv">a</span> <span class="mi">12</span><span class="p">)</span>
+                      <span class="p">(</span><span class="nv">b</span> <span class="s">"sum"</span><span class="p">)</span>
+                      <span class="p">(</span><span class="nv">c</span> <span class="mi">3</span><span class="p">))</span>
+                  <span class="p">(</span><span class="nb">setf</span> <span class="p">(</span><span class="nv">session-value</span> <span class="ss">'result</span><span class="p">)</span> <span class="p">(</span><span class="nb">+</span> <span class="nv">a</span> <span class="nv">c</span><span class="p">))</span> <span class="c1">;; this is server common lisp code</span>
+                  <span class="p">(</span><span class="nb">format</span> <span class="no">nil</span> <span class="s">"~a: ~a"</span> <span class="nv">b</span> <span class="p">(</span><span class="nv">session-value</span> <span class="ss">'result</span><span class="p">))))</span> <span class="c1">;; this is server common lisp code.</span>
+</pre></div>
+
+<p>The above parenscript code sends a post request the url "/game24/test" and wait for a response to update the content of the a model instance called "obj". The <code>:server</code> attribute is actually trickier and <strong>important</strong> here: it accepts a let form. This let form is special because all its body will be server code that executes inside a Hunchentoot handler. The binding list, on the other hand, gets bind on the client side. However, the let form doesn't look special though, since you can access the binded variables in the body just as they gets bound on the server side!</p>
+
+<p>Apply this trick to our web application, the code becomes</p>
+
+<div class="highlight"><pre><span class="p">(</span><span class="nv">define-simple-app</span> <span class="nv">game24-app</span>
+    <span class="p">(</span><span class="ss">:title</span> <span class="s">"Game 24"</span>
+            <span class="ss">:uri</span> <span class="s">"/game24"</span>
+            <span class="ss">:port</span> <span class="mi">9702</span>
+            <span class="ss">:libs</span> <span class="p">(</span><span class="c1">;; JQuery from Google Ajax cdn</span>
+           <span class="s">"http://ajax.googleapis.com/ajax/libs/jquery/1.10.1/jquery.min.js"</span>
+           <span class="c1">;; underscore.js from cdnjs</span>
+           <span class="s">"http://cdnjs.cloudflare.com/ajax/libs/underscore.js/1.4.4/underscore-min.js"</span>
+                   <span class="c1">;; backbone.js from cdnjs</span>
+                   <span class="s">"http://cdnjs.cloudflare.com/ajax/libs/backbone.js/1.0.0/backbone-min.js"</span><span class="p">))</span>
+  <span class="p">(</span><span class="nv">create-event-manager</span> <span class="nv">vent</span>
+                        <span class="s">"submit-event"</span> <span class="p">(</span><span class="k">lambda</span> <span class="p">()</span>
+                                         <span class="p">(</span><span class="nv">@fetch</span> <span class="p">(</span><span class="nv">@</span> <span class="nv">solutions</span> <span class="nb">list</span><span class="p">)</span>
+                                                 <span class="ss">:url</span> <span class="s">"/game24/calc"</span>
+                                                 <span class="ss">:type</span> <span class="s">"post"</span>
+                                                 <span class="ss">:server</span> <span class="p">(</span><span class="k">let</span> <span class="p">((</span><span class="nv">numbers</span> <span class="p">(</span><span class="nc">array</span> <span class="p">(</span><span class="nv">@.</span> <span class="nv">number-set-0</span> <span class="p">(</span><span class="nb">get</span> <span class="s">"selected"</span><span class="p">))</span>
+                                                                               <span class="p">(</span><span class="nv">@.</span> <span class="nv">number-set-1</span> <span class="p">(</span><span class="nb">get</span> <span class="s">"selected"</span><span class="p">))</span>
+                                                                               <span class="p">(</span><span class="nv">@.</span> <span class="nv">number-set-2</span> <span class="p">(</span><span class="nb">get</span> <span class="s">"selected"</span><span class="p">))</span>
+                                                                               <span class="p">(</span><span class="nv">@.</span> <span class="nv">number-set-3</span> <span class="p">(</span><span class="nb">get</span> <span class="s">"selected"</span><span class="p">)))))</span>
+                                                           <span class="p">(</span><span class="k">let</span> <span class="p">((</span><span class="nv">result</span> <span class="p">(</span><span class="nv">solve</span> <span class="nv">numbers</span><span class="p">)))</span>
+                                                             <span class="p">(</span><span class="nv">jsown:to-json</span> <span class="p">(</span><span class="nb">mapcar</span> <span class="p">(</span><span class="k">lambda</span> <span class="p">(</span><span class="nv">x</span><span class="p">)</span> <span class="o">`</span><span class="p">(</span><span class="ss">:obj</span> <span class="p">(</span><span class="s">"solution"</span> <span class="o">,</span><span class="p">(</span><span class="nb">format</span> <span class="no">nil</span> <span class="s">"solution: ~a"</span> <span class="nv">x</span><span class="p">))))</span>
+                                                                                    <span class="nv">result</span><span class="p">)))))))</span>
+  <span class="p">(</span><span class="k">macrolet</span> <span class="p">((</span><span class="nv">place-view</span> <span class="p">(</span><span class="nv">id</span><span class="p">)</span>
+               <span class="o">`</span><span class="p">(</span><span class="k">progn</span> <span class="p">(</span><span class="nb">defvar</span> <span class="o">,</span><span class="p">(</span><span class="nv">symb</span> <span class="ss">'number-set-</span> <span class="nv">id</span><span class="p">)</span> 
+                         <span class="p">(</span><span class="nv">duplicate</span> <span class="nv">number-set-model</span><span class="p">))</span>
+                       <span class="p">(</span><span class="nb">defvar</span> <span class="o">,</span><span class="p">(</span><span class="nv">symb</span> <span class="ss">'number-set-view-</span> <span class="nv">id</span><span class="p">)</span>
+                         <span class="p">(</span><span class="nv">duplicate</span> <span class="nv">number-set-view</span>
+                                    <span class="ss">:model</span> <span class="o">,</span><span class="p">(</span><span class="nv">symb</span> <span class="ss">'number-set-</span> <span class="nv">id</span><span class="p">))))))</span>
+    <span class="p">(</span><span class="nv">place-view</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">(</span><span class="nv">place-view</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="p">(</span><span class="nv">place-view</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="p">(</span><span class="nv">place-view</span> <span class="mi">3</span><span class="p">))</span>
+  <span class="p">(</span><span class="nb">defvar</span> <span class="nv">button</span> <span class="p">(</span><span class="nv">duplicate</span> <span class="nv">submit-button</span>
+                            <span class="ss">:model</span> <span class="p">(</span><span class="nv">duplicate</span> <span class="nv">submit-model</span>
+                                              <span class="ss">:vent</span> <span class="nv">vent</span><span class="p">)))</span>
+
+  <span class="p">(</span><span class="nb">defvar</span> <span class="nv">solutions</span> <span class="p">(</span><span class="nv">duplicate</span> <span class="nv">solutions-model</span><span class="p">))</span>
+
+  <span class="p">(</span><span class="nb">defvar</span> <span class="nv">solution-list</span> <span class="p">(</span><span class="nv">duplicate</span> <span class="nv">solutions-view</span> 
+                                   <span class="ss">:model</span> <span class="nv">solutions</span><span class="p">)))</span>
+</pre></div>
+
+<p><strong>Note</strong> that the "submit-event" is now handled differently. The <code>@fetch</code> is used similarly here, except for that the server body now returns a json object that updates the content of our solution model <code>solutions</code>.</p>
+
+<p>Now we have built the web application and you can play with it in the browser with ease.</p>
+
+<h3>
+<a name="step-11-a-final-improvement" class="anchor" href="#step-11-a-final-improvement"><span class="octicon octicon-link"></span></a>Step 11: A Final Improvement</h3>
+
+<p>You might have notice that there can be solutions that are almost identical. We design the following function <code>normalize-exp</code> to help solve this problem:</p>
+
+<div class="highlight"><pre><span class="p">(</span><span class="nb">defun</span> <span class="nv">normalize-exp</span> <span class="p">(</span><span class="nb">exp</span><span class="p">)</span>
+  <span class="p">(</span><span class="k">if</span> <span class="p">(</span><span class="nb">atom</span> <span class="nb">exp</span><span class="p">)</span> <span class="nb">exp</span>
+      <span class="p">(</span><span class="k">let*</span> <span class="p">((</span><span class="nv">opt</span> <span class="p">(</span><span class="nb">and</span> <span class="p">(</span><span class="nb">member</span> <span class="p">(</span><span class="nb">car</span> <span class="nb">exp</span><span class="p">)</span> <span class="o">'</span><span class="p">(</span><span class="nb">+</span> <span class="nb">*</span><span class="p">))</span> <span class="p">(</span><span class="nb">car</span> <span class="nb">exp</span><span class="p">))))</span>
+        <span class="p">(</span><span class="nb">cons</span> <span class="p">(</span><span class="nb">car</span> <span class="nb">exp</span><span class="p">)</span> 
+              <span class="p">(</span><span class="nb">sort</span> <span class="p">(</span><span class="nb">reduce</span> <span class="p">(</span><span class="k">lambda</span> <span class="p">(</span><span class="nv">y</span> <span class="nv">x</span><span class="p">)</span> 
+                              <span class="p">(</span><span class="k">let</span> <span class="p">((</span><span class="nv">norm</span> <span class="p">(</span><span class="nv">normalize-exp</span> <span class="nv">x</span><span class="p">)))</span>
+                                <span class="p">(</span><span class="nb">or</span> <span class="p">(</span><span class="nb">and</span> <span class="p">(</span><span class="nb">consp</span> <span class="nv">norm</span><span class="p">)</span> <span class="p">(</span><span class="nb">eq</span> <span class="nv">opt</span> <span class="p">(</span><span class="nb">car</span> <span class="nv">norm</span><span class="p">))</span>
+                                         <span class="p">(</span><span class="nb">append</span> <span class="p">(</span><span class="nb">cdr</span> <span class="nv">norm</span><span class="p">)</span> <span class="nv">y</span><span class="p">))</span>
+                                    <span class="p">(</span><span class="nb">cons</span> <span class="nv">norm</span> <span class="nv">y</span><span class="p">))))</span>
+                            <span class="p">(</span><span class="nb">cdr</span> <span class="nb">exp</span><span class="p">)</span> <span class="ss">:initial-value</span> <span class="no">nil</span><span class="p">)</span>
+                    <span class="nf">#'</span><span class="nb">string&gt;</span> <span class="ss">:key</span> <span class="nf">#'</span><span class="nb">write-to-string</span><span class="p">)))))</span>
+</pre></div>
+
+<p>Normalized with <code>normalize-exp</code>, similar solutions will be exactly identical. Common Lisp utility function <code>remove-duplicates</code> can then filter the solution list easily. Modify the line in your web application server part that calls <code>solve</code></p>
+
+<div class="highlight"><pre><span class="p">(</span><span class="k">let</span> <span class="p">((</span><span class="nv">result</span> <span class="p">(</span><span class="nv">solve</span> <span class="nv">numbers</span><span class="p">)))</span>
+   <span class="o">...</span><span class="p">)</span>
+</pre></div>
+
+<p>to be </p>
+
+<div class="highlight"><pre><span class="p">(</span><span class="k">let</span> <span class="p">((</span><span class="nv">result</span> <span class="p">(</span><span class="nb">remove-duplicates</span> <span class="p">(</span><span class="nb">mapcar</span> <span class="nf">#'</span><span class="nv">normalize-exp</span> 
+                                         <span class="p">(</span><span class="nv">solve</span> <span class="nv">numbers</span><span class="p">))</span>
+                                 <span class="ss">:test</span> <span class="nf">#'</span><span class="nb">equal</span><span class="p">)))</span>
+   <span class="o">....</span><span class="p">)</span>
+</pre></div>
+
+<p>will do the job.</p>
+
+<h3>
+<a name="appendix-implementation-of-map-cartesian" class="anchor" href="#appendix-implementation-of-map-cartesian"><span class="octicon octicon-link"></span></a>Appendix: Implementation of map-cartesian</h3>
+
+<div class="highlight"><pre><span class="p">(</span><span class="nb">defmacro</span> <span class="nv">map-cartesian</span> <span class="p">(</span><span class="nv">fun</span> <span class="k">&amp;rest</span> <span class="nv">lists</span><span class="p">)</span>
+  <span class="p">(</span><span class="k">labels</span> <span class="p">((</span><span class="nv">reduce-iter</span> <span class="p">(</span><span class="nv">x-vars</span> <span class="nv">y-var</span> <span class="nv">remain</span><span class="p">)</span>
+             <span class="p">(</span><span class="nv">with-gensyms</span> <span class="p">(</span><span class="nv">x</span> <span class="nv">y</span><span class="p">)</span>
+               <span class="o">`</span><span class="p">(</span><span class="nb">reduce</span> <span class="p">(</span><span class="k">lambda</span> <span class="p">(</span><span class="o">,</span><span class="nv">y</span> <span class="o">,</span><span class="nv">x</span><span class="p">)</span>
+                          <span class="o">,</span><span class="p">(</span><span class="nb">case</span> <span class="p">(</span><span class="nb">length</span> <span class="nv">remain</span><span class="p">)</span>
+                                 <span class="p">(</span><span class="mi">1</span> <span class="o">`</span><span class="p">(</span><span class="nb">cons</span> <span class="p">(</span><span class="nb">funcall</span> <span class="o">,</span><span class="nv">fun</span>
+                                                    <span class="o">,@</span><span class="p">(</span><span class="nb">reverse</span> <span class="nv">x-vars</span><span class="p">)</span>
+                                                    <span class="o">,</span><span class="nv">x</span><span class="p">)</span>
+                                           <span class="o">,</span><span class="nv">y</span><span class="p">))</span>
+                                 <span class="p">(</span><span class="no">t</span> <span class="p">(</span><span class="nv">reduce-iter</span> <span class="p">(</span><span class="nb">cons</span> <span class="nv">x</span> <span class="nv">x-vars</span><span class="p">)</span>
+                                                 <span class="nv">y</span>
+                                                 <span class="p">(</span><span class="nb">cdr</span> <span class="nv">remain</span><span class="p">)))))</span>
+                        <span class="o">,</span><span class="p">(</span><span class="nb">car</span> <span class="nv">remain</span><span class="p">)</span>
+                        <span class="ss">:initial-value</span> <span class="o">,</span><span class="nv">y-var</span><span class="p">))))</span>
+    <span class="p">(</span><span class="nv">reduce-iter</span> <span class="no">nil</span> <span class="no">nil</span> <span class="nv">lists</span><span class="p">)))</span>
+</pre></div>
+</table>
         </section>
 
         <aside id="sidebar">
