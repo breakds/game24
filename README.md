@@ -107,3 +107,40 @@ GAME24> (funcall next)
 NIL
 ```
 Note that the closure generates one partition per call, and will produce nil after all the parititons are generated (plesae recall yeild in python and continuation passing style programming).
+
+#### The solver
+
+The solver is straigt-forward as described above:
+
+```common-lisp
+(defmacro op (symb op-1 op-2)
+  `(lambda (a b) (list ',symb ,op-1 ,op-2)))
+
+(defun calc (exp)
+  (aif (ignore-errors (eval exp)) it 0))
+
+(defun solve (lst)
+  (labels ((gen (lst next accu)
+             (case (length lst)
+               (1 lst)
+               (t (if next
+                      (aif (funcall next)
+                           (gen lst next
+                                (append 
+                                 (map-cartesian (lambda (x y z)
+                                                  (funcall z x y))
+                                                (gen (car it) nil nil)
+                                                (gen (cadr it) nil nil)
+                                                (list (op + a b)
+                                                      (op * a b)
+                                                      (op / a b)
+                                                      (op / b a)
+                                                      (op - a b)
+                                                      (op - b a)))
+                                 accu))
+                           accu)
+                      (gen lst (partition-generator lst) accu))))))
+    (remove-if-not (lambda (x) (= (calc x) 24)) (gen lst nil nil))))
+```
+
+The macro `map-cartesian`
