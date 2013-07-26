@@ -38,3 +38,72 @@ The first one hits 24 and will be kept:
 CL-USER> (+ (* 3 7) 1 2)
 24
 ```
+
+And the second one is going to be filtered out:
+```common-lisp
+CL-USER> (+ 3 7 1 2)
+13
+```
+It is easy to exhausted all the possible expressions iterately. Consier an integer list x, gen(x) should work as 
+
+1. find all the 2-partitions of x
+2. for each patition (a b), push the below 6 expressions into result
+   * gen(a) + gen(b)
+   * gen(a) * gen(b)
+   * gen(a) - gen(b)
+   * gen(b) - gen(a)
+   * gen(a) / gen(b)
+   * gen(b) / gen(a)
+3. the recursion stops when x is a single integer, in the case x itself will be returned
+
+
+#### the Partition Generator
+
+Okay so much for the explanation, let's write some actual code. The partition generator is a function that produce a closure for a give integer list: partition-generator
+```common-lisp
+(defun partition-generator (lst)
+  "return a generator that generates a partition of lst one at a time"
+  (alet ()
+    (lambda ()
+      (funcall (alambda (lst left right cont)
+                 (block result
+                   (if (null lst)
+                       (return-from result
+                         (when left
+                           (setq this cont)
+                           (list left right)))
+                       (self (cdr lst)
+                             (cons (car lst) left)
+                             right
+                             (lambda ()
+                               (self (cdr lst)
+                                     left
+                                     (cons (car lst) right)
+                                     cont))))))
+               (cdr lst) nil (list (car lst)) 
+               (lambda () nil)))))
+```
+
+To test the function:
+
+```common-lisp
+GAME24> (setq next (partion-generator '(1 2 3 4)))
+#<CLOSURE (LAMBDA (&REST #:G15) :IN PARTITION-GENERATOR) {1005FB6CCB}>
+GAME24> (funcall next)
+((4 3 2) (1))
+GAME24> (funcall next)
+((3 2) (4 1))
+GAME24> (funcall next)
+((4 2) (3 1))
+GAME24> (funcall next)
+((2) (4 3 1))
+GAME24> (funcall next)
+((4 3) (2 1))
+GAME24> (funcall next)
+((3) (4 2 1))
+GAME24> (funcall next)
+((4) (3 2 1))
+GAME24> (funcall next)
+NIL
+```
+Note that the closure generates one partition per call, and will produce nil after all the parititons are generated (plesae recall yeild in python and continuation passing style programming).
