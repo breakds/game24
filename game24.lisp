@@ -1,25 +1,5 @@
 (in-package :breakds.game24)
 
-(defmacro map-cartesian (fun &rest lists)
-  (labels ((reduce-iter (x-vars y-var remain)
-             (with-gensyms (x y)
-               `(reduce (lambda (,y ,x)
-                          ,(case (length remain)
-                                 (1 `(cons (funcall ,fun
-                                                    ,@(reverse x-vars)
-                                                    ,x)
-                                           ,y))
-                                 (t (reduce-iter (cons x x-vars)
-                                                 y
-                                                 (cdr remain)))))
-                        ,(car remain)
-                        :initial-value ,y-var))))
-    (reduce-iter nil nil lists)))
-
-
-                         
-
-
 
 (defmacro op (symb op-1 op-2)
   `(lambda (a b) (list ',symb ,op-1 ,op-2)))
@@ -189,13 +169,8 @@
                             :model (duplicate submit-model
                                               :vent vent)))
 
-  (defvar solutions (duplicate solutions-model
-                               :model-list (array (duplicate single-solution-model
-                                                             :solution "(* 6 4)")
-                                                  (duplicate single-solution-model
-                                                             :solution "(* 3 8)")
-                                                  (duplicate single-solution-model
-                                                             :solution "(+ 12 12)"))))
+  (defvar solutions (duplicate solutions-model))
+
   (defvar solution-list (duplicate solutions-view 
                                    :model solutions)))
             

@@ -6,5 +6,5 @@
                  #:html-template
                  #:jsown
                  #:lazy-bone)
-    :components ((:file "lisp/package")
-		 (:file "lisp/test")))
+    :components ((:file "package")
+		 (:file "game24")))
